@@ -78,12 +78,6 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
             detail=f"Usuário {user.status}. Contate o suporte."
         )
 
-    if user.vencimento and user.vencimento < date.today():
-        raise HTTPException(
-            status_code=403,
-            detail="Licença vencida. Entre em contato com o suporte."
-        )
-
     token = create_access_token({
         "sub": user.email,
         "user_id": user.id,
@@ -95,3 +89,4 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
         "token": token,
         "status": user.status
     }
+
