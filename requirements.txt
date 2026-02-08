@@ -5,3 +5,5 @@ python-multipart
 jinja2
 passlib[bcrypt]
 python-jose
+itsdangerous
+
