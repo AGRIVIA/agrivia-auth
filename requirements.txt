@@ -1,9 +1,7 @@
 fastapi
 uvicorn
 sqlalchemy
-pydantic
 python-multipart
 jinja2
 passlib[bcrypt]
 python-jose
-itsdangerous
