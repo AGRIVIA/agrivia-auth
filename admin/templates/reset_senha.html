@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Resetar Senha</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f4f6f8;
+            padding: 40px;
+        }
+        form {
+            background: white;
+            padding: 30px;
+            max-width: 400px;
+            border-radius: 6px;
+        }
+        label {
+            display: block;
+            margin-top: 12px;
+        }
+        input {
+            width: 100%;
+            padding: 8px;
+            margin-top: 4px;
+        }
+        button {
+            margin-top: 20px;
+            padding: 10px;
+            width: 100%;
+            cursor: pointer;
+        }
+        .erro {
+            color: red;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+
+<h2>🔑 Resetar Senha</h2>
+<p>Usuário: <strong>{{ usuario.email }}</strong></p>
+
+<form method="post">
+    {% if error %}
+        <div class="erro">{{ error }}</div>
+    {% endif %}
+
+    <label>Nova senha</label>
+    <input name="nova_senha" type="password" required>
+
+    <button type="submit">Salvar nova senha</button>
+</form>
+
+</body>
+</html>

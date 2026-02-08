@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Painel Admin · Usuários</title>
+
+    <style>
+        :root {
+            --bg: #f3f5f8;
+            --card: #ffffff;
+            --primary: #1f2937;
+            --secondary: #374151;
+            --accent: #16a34a;
+            --danger: #dc2626;
+            --border: #e5e7eb;
+            --muted: #6b7280;
+
+            --venc-ok: #166534;
+            --venc-ok-bg: #dcfce7;
+
+            --venc-alerta: #92400e;
+            --venc-alerta-bg: #fef3c7;
+
+            --venc-vencido: #991b1b;
+            --venc-vencido-bg: #fee2e2;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            padding: 40px;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background: var(--bg);
+            color: var(--primary);
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 26px;
+            font-weight: 600;
+        }
+
+        /* ===== Header ===== */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+
+        .actions {
+            display: flex;
+            gap: 12px;
+        }
+
+        /* ===== Buttons ===== */
+        button {
+            border: none;
+            padding: 8px 14px;
+            border-radius: 6px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: 0.15s ease;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: #fff;
+        }
+
+        .btn-secondary {
+            background: #e5e7eb;
+            color: var(--primary);
+        }
+
+        .btn-danger {
+            background: var(--danger);
+            color: #fff;
+        }
+
+        button:hover {
+            opacity: 0.9;
+        }
+
+        /* ===== Card ===== */
+        .card {
+            background: var(--card);
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.06);
+            padding: 20px;
+        }
+
+        /* ===== Table ===== */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        thead {
+            background: #f9fafb;
+        }
+
+        th {
+            text-align: left;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--muted);
+            padding: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        td {
+            padding: 12px;
+            border-bottom: 1px solid var(--border);
+            font-size: 14px;
+        }
+
+        tr:hover td {
+            background: #f9fafb;
+        }
+
+        /* ===== Badges ===== */
+        .badge {
+            padding: 4px 10px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 600;
+            display: inline-block;
+        }
+
+        .ativo {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .bloqueado {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        /* ===== Admin ===== */
+        .admin {
+            color: var(--accent);
+            font-weight: 600;
+        }
+
+        .user {
+            color: var(--muted);
+        }
+
+        /* ===== Vencimento ===== */
+        .venc-ok {
+            background: var(--venc-ok-bg);
+            color: var(--venc-ok);
+            padding: 4px 10px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .venc-alerta {
+            background: var(--venc-alerta-bg);
+            color: var(--venc-alerta);
+            padding: 4px 10px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .venc-vencido {
+            background: var(--venc-vencido-bg);
+            color: var(--venc-vencido);
+            padding: 4px 10px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .venc-sem {
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        /* ===== Row actions ===== */
+        .row-actions {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
+        a {
+            text-decoration: none;
+        }
+    </style>
+</head>
+
+<body>
+
+<!-- ===== Header ===== -->
+<div class="header">
+    <h1>👤 Usuários do Sistema</h1>
+
+    <div class="actions">
+        <a href="/admin/usuarios/novo">
+            <button class="btn-primary">➕ Novo Usuário</button>
+        </a>
+
+        <a href="/admin/logout">
+            <button class="btn-danger">🚪 Logout</button>
+        </a>
+    </div>
+</div>
+
+<!-- ===== Card ===== -->
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Nome</th>
+                <th>Email</th>
+                <th>Status</th>
+                <th>Admin</th>
+                <th>Vencimento</th>
+                <th>Ações</th>
+            </tr>
+        </thead>
+
+        <tbody>
+        {% for u in usuarios %}
+            <tr>
+                <td>{{ u.id }}</td>
+                <td>{{ u.nome }}</td>
+                <td>{{ u.email }}</td>
+
+                <td>
+                    {% if u.status == "ativo" %}
+                        <span class="badge ativo">Ativo</span>
+                    {% else %}
+                        <span class="badge bloqueado">Bloqueado</span>
+                    {% endif %}
+                </td>
+
+                <td>
+                    {% if u.is_admin %}
+                        <span class="admin">SIM</span>
+                    {% else %}
+                        <span class="user">NÃO</span>
+                    {% endif %}
+                </td>
+
+                <td>
+                    {% if u.vencimento_status == "ok" %}
+                        <span class="venc-ok">{{ u.vencimento }}</span>
+                    {% elif u.vencimento_status == "alerta" %}
+                        <span class="venc-alerta">{{ u.vencimento }}</span>
+                    {% elif u.vencimento_status == "vencido" %}
+                        <span class="venc-vencido">{{ u.vencimento }}</span>
+                    {% else %}
+                        <span class="venc-sem">—</span>
+                    {% endif %}
+                </td>
+
+                <td>
+                    <div class="row-actions">
+                        <a href="/admin/usuarios/{{ u.id }}/reset-senha">
+                            <button class="btn-secondary">🔑 Resetar</button>
+                        </a>
+
+                        <a href="/admin/usuarios/{{ u.id }}/vencimento">
+                            <button class="btn-secondary">📅 Vencimento</button>
+                        </a>
+
+                        {% if u.status != "ativo" %}
+                        <form method="post" action="/admin/usuarios/{{ u.id }}/status">
+                            <input type="hidden" name="novo_status" value="ativo">
+                            <button class="btn-primary" type="submit">Ativar</button>
+                        </form>
+                        {% endif %}
+
+                        {% if u.status != "bloqueado" %}
+                        <form method="post" action="/admin/usuarios/{{ u.id }}/status">
+                            <input type="hidden" name="novo_status" value="bloqueado">
+                            <button class="btn-danger" type="submit">Bloquear</button>
+                        </form>
+                        {% endif %}
+                    </div>
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+</body>
+</html>

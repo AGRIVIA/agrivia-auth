@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>{% block title %}Admin ProjetAgro{% endblock %}</title>
+    <style>
+        body {
+            background-color: #0b3d2e;
+            font-family: Arial, sans-serif;
+            color: #ecfdf5;
+        }
+        .container {
+            max-width: 420px;
+            margin: 100px auto;
+            background: #052e22;
+            padding: 30px;
+            border-radius: 12px;
+        }
+        input, button {
+            width: 100%;
+            padding: 10px;
+            margin-top: 10px;
+            border-radius: 6px;
+            border: none;
+        }
+        button {
+            background-color: #16a34a;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .error {
+            color: #f87171;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        {% block content %}{% endblock %}
+    </div>
+</body>
+</html>

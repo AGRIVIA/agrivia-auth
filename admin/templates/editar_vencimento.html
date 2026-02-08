@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Editar Vencimento</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f4f6f8;
+            padding: 40px;
+        }
+
+        .box {
+            background: white;
+            padding: 30px;
+            max-width: 400px;
+            margin: auto;
+            border-radius: 6px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+
+        h2 {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+        }
+
+        input[type="date"] {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 20px;
+        }
+
+        button {
+            padding: 10px 16px;
+            cursor: pointer;
+        }
+
+        .voltar {
+            margin-left: 10px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="box">
+    <h2>📅 Editar vencimento</h2>
+
+    <p><strong>{{ usuario.nome }}</strong><br>{{ usuario.email }}</p>
+
+    <form method="post">
+        <label>Data de vencimento:</label>
+
+        <input
+            type="date"
+            name="vencimento"
+            value="{{ usuario.vencimento_pagamento }}"
+            required
+        >
+
+        <button type="submit">💾 Salvar</button>
+
+        <a href="/admin/usuarios" class="voltar">
+            <button type="button">↩ Voltar</button>
+        </a>
+    </form>
+</div>
+
+</body>
+</html>
