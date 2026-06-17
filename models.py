@@ -14,8 +14,13 @@ class Usuario(Base):
     status = Column(String, default="ativo")
     is_admin = Column(Integer, default=0)
 
-    # 🔹 NOVO CAMPO: vencimento do pagamento
+    # 🔹 vencimento do pagamento
     vencimento_pagamento = Column(DateTime, nullable=True)
+
+    # 🔹 VALIDAÇÃO DE E-MAIL (Subida B)
+    email_verificado = Column(Integer, default=0)      # 0 = não confirmado | 1 = confirmado
+    token_confirmacao = Column(String, nullable=True)  # token do link de confirmação
+    token_expira = Column(DateTime, nullable=True)     # até quando o link vale
 
     criado_em = Column(DateTime, default=datetime.utcnow)
     atualizado_em = Column(DateTime, nullable=True)

@@ -1,4 +1,5 @@
 import os
+import secrets
 from fastapi import APIRouter, Request, Form, Depends, HTTPException, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -7,7 +8,7 @@ from sqlalchemy.orm import Session
 from database import SessionLocal
 from models import Usuario
 from auth import verify_password, hash_password
-from datetime import date
+from datetime import date, datetime, timedelta
 
 # -------------------------------------------------
 # ROUTER
@@ -206,21 +207,53 @@ def criar_usuario_action(
             }
         )
 
+    eh_admin = 1 if is_admin else 0
+
     novo = Usuario(
         nome=nome,
         email=email,
         senha_hash=hash_password(senha),
         status=status,
-        is_admin=1 if is_admin else 0
+        is_admin=eh_admin,
     )
 
+    # Admin não precisa confirmar e-mail; cliente precisa.
+    if eh_admin:
+        novo.email_verificado = 1
+        db.add(novo)
+        db.commit()
+        return RedirectResponse(url="/admin/usuarios", status_code=302)
+
+    # Cliente: cria como NÃO confirmado e gera o link de confirmação.
+    token = secrets.token_urlsafe(32)
+    novo.email_verificado = 0
+    novo.token_confirmacao = token
+    novo.token_expira = datetime.utcnow() + timedelta(days=3)
     db.add(novo)
     db.commit()
 
-    return RedirectResponse(
-        url="/admin/usuarios",
-        status_code=302
-    )
+    base = os.getenv(
+        "PUBLIC_BASE_URL",
+        "https://agrivia-auth-production.up.railway.app"
+    ).rstrip("/")
+    link = f"{base}/confirmar?token={token}"
+    print(f"[cadastro] link de confirmacao para {email}: {link}")
+
+    # SUBIDA B1: mostra o link na tela. (Na B2 isso vira e-mail automático.)
+    pagina = f"""<!doctype html>
+<html lang="pt-br"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Usuário criado - AGRIVIA</title></head>
+<body style="font-family: Arial, sans-serif; background:#0c1826; color:#eaf2e2; margin:0; display:flex; min-height:100vh; align-items:center; justify-content:center;">
+  <div style="background:#0b1320; border:1px solid #476126; border-radius:14px; padding:36px; max-width:560px;">
+    <h1 style="color:#7aa33f; font-size:22px; margin-top:0;">Usuário criado &#9989;</h1>
+    <p style="font-size:15px; line-height:1.5;">A conta de <b>{email}</b> foi criada, mas ainda precisa <b>confirmar o e-mail</b> antes de entrar no AGRIVIA.</p>
+    <p style="font-size:15px; line-height:1.5;">Por enquanto, <b>copie o link abaixo e envie ao cliente</b> (na próxima etapa isso será enviado por e-mail automaticamente):</p>
+    <div style="background:#0c1826; border:1px solid #2b3a22; border-radius:8px; padding:14px; word-break:break-all; font-size:13px; color:#bcd49a;">{link}</div>
+    <p style="margin-top:24px;"><a href="/admin/usuarios" style="background:#476126; color:#fff; text-decoration:none; padding:10px 18px; border-radius:8px; font-size:14px;">Voltar para a lista</a></p>
+  </div>
+</body></html>"""
+    return HTMLResponse(pagina)
 
 @router.get("/usuarios/{user_id}/reset-senha", response_class=HTMLResponse)
 def reset_senha_page(
