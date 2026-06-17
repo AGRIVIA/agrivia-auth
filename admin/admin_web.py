@@ -1,3 +1,4 @@
+import os
 from fastapi import APIRouter, Request, Form, Depends, HTTPException, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -12,7 +13,12 @@ from datetime import date
 # ROUTER
 # -------------------------------------------------
 router = APIRouter(prefix="/admin", tags=["Admin Web"])
-templates = Jinja2Templates(directory="admin/templates")
+
+# Caminho ABSOLUTO para a pasta de templates, baseado na localização deste
+# arquivo. Assim funciona em qualquer lugar (servidor ou sua máquina),
+# independente de "de qual pasta" o servidor foi iniciado.
+_TEMPLATES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates")
+templates = Jinja2Templates(directory=_TEMPLATES_DIR)
 
 
 # -------------------------------------------------
