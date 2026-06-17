@@ -8,3 +8,4 @@ passlib[bcrypt]
 python-jose
 itsdangerous
 psycopg2-binary
+requests
