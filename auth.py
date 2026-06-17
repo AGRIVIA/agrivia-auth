@@ -1,3 +1,4 @@
+import os
 import bcrypt
 from datetime import datetime, timedelta
 from jose import jwt, JWTError
@@ -11,7 +12,7 @@ from models import Usuario
 # =====================================================
 # 🔐 CONFIGURAÇÕES DO TOKEN
 # =====================================================
-SECRET_KEY = "PROJETAGRO_SUPER_SECRET_KEY_123"  # depois vai para .env
+SECRET_KEY = os.getenv("JWT_SECRET_KEY", "PROJETAGRO_SUPER_SECRET_KEY_123")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_DAYS = 7  
 

@@ -1,0 +1,11 @@
+# Arquivos temporários do Python (não precisam ir pro servidor)
+__pycache__/
+*.pyc
+*.pyo
+
+# Ambiente virtual
+venv/
+.venv/
+
+# Arquivos auxiliares de banco SQLite (NÃO ignorar o usuarios.db!)
+*.db-journal
