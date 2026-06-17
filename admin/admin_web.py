@@ -64,8 +64,9 @@ def admin_session_required(
 @router.get("/login", response_class=HTMLResponse)
 def login_page(request: Request):
     return templates.TemplateResponse(
+        request,
         "login.html",
-        {"request": request, "error": None}
+        {"error": None}
     )
 
 
@@ -83,14 +84,16 @@ def login_action(
 
     if not user or not verify_password(senha, user.senha_hash):
         return templates.TemplateResponse(
+            request,
             "login.html",
-            {"request": request, "error": "Email ou senha inválidos"}
+            {"error": "Email ou senha inválidos"}
         )
 
     if not user.is_admin:
         return templates.TemplateResponse(
+            request,
             "login.html",
-            {"request": request, "error": "Acesso restrito ao administrador"}
+            {"error": "Acesso restrito ao administrador"}
         )
 
     request.session["admin_id"] = user.id
@@ -141,9 +144,9 @@ def listar_usuarios(
         })
 
     return templates.TemplateResponse(
+        request,
         "usuarios.html",
         {
-            "request": request,
             "usuarios": usuarios_view
         }
     )
@@ -177,8 +180,9 @@ def criar_usuario_page(
     admin: Usuario = Depends(admin_session_required)
 ):
     return templates.TemplateResponse(
+        request,
         "criar_usuario.html",
-        {"request": request, "error": None}
+        {"error": None}
     )
 
 @router.post("/usuarios/novo")
@@ -195,9 +199,9 @@ def criar_usuario_action(
     existe = db.query(Usuario).filter(Usuario.email == email).first()
     if existe:
         return templates.TemplateResponse(
+            request,
             "criar_usuario.html",
             {
-                "request": request,
                 "error": "Email já cadastrado"
             }
         )
@@ -231,9 +235,9 @@ def reset_senha_page(
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
 
     return templates.TemplateResponse(
+        request,
         "reset_senha.html",
         {
-            "request": request,
             "usuario": usuario,
             "error": None
         }
@@ -284,9 +288,9 @@ def editar_vencimento_page(
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
 
     return templates.TemplateResponse(
+        request,
         "editar_vencimento.html",
         {
-            "request": request,
             "usuario": usuario
         }
     )
