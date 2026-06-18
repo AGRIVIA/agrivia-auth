@@ -1,73 +1,47 @@
-<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-    <meta charset="UTF-8">
-    <title>Criar Usuário</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background: #f4f6f8;
-            padding: 40px;
-        }
-        form {
-            background: white;
-            padding: 30px;
-            max-width: 400px;
-            border-radius: 6px;
-        }
-        label {
-            display: block;
-            margin-top: 12px;
-        }
-        input, select {
-            width: 100%;
-            padding: 8px;
-            margin-top: 4px;
-        }
-        button {
-            margin-top: 20px;
-            padding: 10px;
-            width: 100%;
-            cursor: pointer;
-        }
-        .erro {
-            color: red;
-            margin-bottom: 10px;
-        }
-    </style>
-</head>
-<body>
+{% extends "base.html" %}
 
-<h2>➕ Criar Usuário</h2>
+{% block title %}AGRIVIA · Novo usuário{% endblock %}
 
-<form method="post">
-    {% if error %}
-        <div class="erro">{{ error }}</div>
-    {% endif %}
+{% block content %}
+<div class="page">
+    <div class="card card-narrow">
+        <h1 class="page-title">➕ Novo usuário</h1>
+        <p class="hint" style="margin-top:6px;">Clientes recebem um e-mail para confirmar a conta.</p>
 
-    <label>Nome</label>
-    <input name="nome" required>
+        <form method="post" style="margin-top:8px;">
+            {% if error %}
+            <div class="error">{{ error }}</div>
+            {% endif %}
 
-    <label>Email</label>
-    <input name="email" type="email" required>
+            <label>Nome</label>
+            <input name="nome" required>
 
-    <label>Senha inicial</label>
-    <input name="senha" type="password" required>
+            <label>E-mail</label>
+            <input name="email" type="email" required>
 
-    <label>Status</label>
-    <select name="status">
-        <option value="ativo">Ativo</option>
-        <option value="teste">Teste</option>
-        <option value="bloqueado">Bloqueado</option>
-    </select>
+            <label>Senha inicial</label>
+            <input name="senha" type="password" required>
 
-    <label>
-        <input type="checkbox" name="is_admin">
-        Administrador
-    </label>
+            <label>Status</label>
+            <select name="status">
+                <option value="ativo">Ativo</option>
+                <option value="teste">Teste</option>
+                <option value="bloqueado">Bloqueado</option>
+            </select>
 
-    <button type="submit">Criar Usuário</button>
-</form>
+            <label style="display:flex;align-items:center;gap:8px;margin-top:16px;color:var(--text);">
+                <input type="checkbox" name="is_admin" style="width:auto;"> É administrador
+            </label>
 
-</body>
-</html>
+            <div style="display:flex;gap:10px;margin-top:22px;">
+                <button type="submit" class="btn btn-primary" style="flex:1;justify-content:center;padding:12px;">
+                    Criar usuário
+                </button>
+                <a href="/admin/usuarios" class="btn btn-light" style="justify-content:center;padding:12px 16px;">
+                    Voltar
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

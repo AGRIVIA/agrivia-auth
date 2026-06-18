@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
@@ -46,6 +47,11 @@ app.add_middleware(
     SessionMiddleware,
     secret_key=os.getenv("SESSION_SECRET", "AGRIVIA_ADMIN_SESSION_KEY_2026")
 )
+
+# 📁 ARQUIVOS ESTÁTICOS (logo e imagens do painel admin)
+_STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+os.makedirs(_STATIC_DIR, exist_ok=True)
+app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 
 # ===============================
 # DATABASE

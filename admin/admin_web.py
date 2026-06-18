@@ -109,14 +109,26 @@ def login_action(
 @router.get("/usuarios", response_class=HTMLResponse)
 def listar_usuarios(
     request: Request,
+    busca: str = "",
+    filtro: str = "",
+    ok: str = "",
+    erro: str = "",
     db: Session = Depends(get_db)
 ):
     admin_id = request.session.get("admin_id")
     if not admin_id:
         return RedirectResponse("/admin/login", status_code=302)
 
-    usuarios = db.query(Usuario).all()
+    usuarios = db.query(Usuario).order_by(Usuario.id).all()
     hoje = date.today()
+    termo = (busca or "").strip().lower()
+
+    # Contadores SEMPRE sobre o total (não sobre o que está filtrado na tela).
+    total = len(usuarios)
+    n_ativos = 0
+    n_bloqueados = 0
+    n_vencidos = 0
+    n_nao_confirmados = 0
 
     usuarios_view = []
 
@@ -135,12 +147,39 @@ def listar_usuarios(
             else:
                 venc_status = "ok"
 
+        confirmado = bool(u.email_verificado)
+
+        # ----- contadores -----
+        if u.status == "ativo":
+            n_ativos += 1
+        if u.status == "bloqueado":
+            n_bloqueados += 1
+        if venc_status == "vencido":
+            n_vencidos += 1
+        if not confirmado:
+            n_nao_confirmados += 1
+
+        # ----- busca por nome/e-mail -----
+        if termo and termo not in (u.nome or "").lower() and termo not in (u.email or "").lower():
+            continue
+
+        # ----- filtro rápido (cards) -----
+        if filtro == "ativos" and u.status != "ativo":
+            continue
+        if filtro == "bloqueados" and u.status != "bloqueado":
+            continue
+        if filtro == "vencidos" and venc_status != "vencido":
+            continue
+        if filtro == "nao_confirmados" and confirmado:
+            continue
+
         usuarios_view.append({
             "id": u.id,
             "nome": u.nome,
             "email": u.email,
             "status": u.status,
             "is_admin": u.is_admin,
+            "confirmado": confirmado,
             "vencimento": venc_data.strftime("%d/%m/%Y") if venc_data else None,
             "vencimento_status": venc_status
         })
@@ -149,7 +188,18 @@ def listar_usuarios(
         request,
         "usuarios.html",
         {
-            "usuarios": usuarios_view
+            "usuarios": usuarios_view,
+            "busca": busca or "",
+            "filtro": filtro or "",
+            "ok": ok or "",
+            "erro": erro or "",
+            "contadores": {
+                "total": total,
+                "ativos": n_ativos,
+                "bloqueados": n_bloqueados,
+                "vencidos": n_vencidos,
+                "nao_confirmados": n_nao_confirmados,
+            },
         }
     )
 
@@ -175,6 +225,62 @@ def alterar_status_usuario(
     db.commit()
 
     return RedirectResponse("/admin/usuarios", status_code=302)
+
+# -------------------------------------------------
+# REENVIAR E-MAIL DE CONFIRMAÇÃO
+# -------------------------------------------------
+@router.post("/usuarios/{user_id}/reenviar-confirmacao")
+def reenviar_confirmacao_action(
+    user_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    admin: Usuario = Depends(admin_session_required)
+):
+    usuario = db.query(Usuario).filter(Usuario.id == user_id).first()
+    if not usuario:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+
+    if usuario.email_verificado:
+        return RedirectResponse("/admin/usuarios?erro=ja_confirmado", status_code=302)
+
+    # Gera um novo token (validade 3 dias) e reenvia o e-mail.
+    token = secrets.token_urlsafe(32)
+    usuario.token_confirmacao = token
+    usuario.token_expira = datetime.utcnow() + timedelta(days=3)
+    db.commit()
+
+    base = os.getenv(
+        "PUBLIC_BASE_URL",
+        "https://agrivia-auth-production.up.railway.app"
+    ).rstrip("/")
+    link = f"{base}/confirmar?token={token}"
+
+    enviado = enviar_confirmacao(usuario.email, usuario.nome, link)
+    if enviado:
+        return RedirectResponse("/admin/usuarios?ok=reenviado", status_code=302)
+    return RedirectResponse("/admin/usuarios?erro=envio", status_code=302)
+
+# -------------------------------------------------
+# EXCLUIR USUÁRIO
+# -------------------------------------------------
+@router.post("/usuarios/{user_id}/excluir")
+def excluir_usuario_action(
+    user_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    admin: Usuario = Depends(admin_session_required)
+):
+    # Segurança: o admin não pode excluir a própria conta (evita ficar trancado fora).
+    if user_id == admin.id:
+        return RedirectResponse("/admin/usuarios?erro=auto_exclusao", status_code=302)
+
+    usuario = db.query(Usuario).filter(Usuario.id == user_id).first()
+    if not usuario:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+
+    db.delete(usuario)
+    db.commit()
+    return RedirectResponse("/admin/usuarios?ok=excluido", status_code=302)
 
 @router.get("/usuarios/novo", response_class=HTMLResponse)
 def criar_usuario_page(

@@ -2,42 +2,118 @@
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
-    <title>{% block title %}Admin ProjetAgro{% endblock %}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}AGRIVIA · Admin{% endblock %}</title>
     <style>
-        body {
-            background-color: #0b3d2e;
-            font-family: Arial, sans-serif;
-            color: #ecfdf5;
+        :root{
+            --bg:#0c1826;
+            --panel:#0e1d2c;
+            --panel-2:#0b1320;
+            --border:#223a2a;
+            --green:#476126;
+            --green-2:#5a7a30;
+            --green-light:#9fc35a;
+            --text:#eaf2e2;
+            --muted:#8ba07d;
+            --danger:#c0392b;
+            --danger-light:#e7897d;
+            --warning:#e0a93f;
+            --warning-bg:rgba(224,169,63,0.14);
         }
-        .container {
-            max-width: 420px;
-            margin: 100px auto;
-            background: #052e22;
-            padding: 30px;
-            border-radius: 12px;
+        *{box-sizing:border-box;}
+        body{
+            margin:0;
+            min-height:100vh;
+            font-family: system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+            background: radial-gradient(1200px 500px at 50% -200px, #142c1f 0%, var(--bg) 60%);
+            color:var(--text);
         }
-        input, button {
-            width: 100%;
-            padding: 10px;
-            margin-top: 10px;
-            border-radius: 6px;
-            border: none;
+        a{text-decoration:none; color:inherit;}
+
+        /* ===== Topbar ===== */
+        .topbar{
+            display:flex; align-items:center; justify-content:space-between;
+            padding:16px 28px;
+            background:rgba(7,16,12,0.55);
+            border-bottom:1px solid var(--border);
+            position:sticky; top:0; z-index:5;
+            backdrop-filter: blur(6px);
         }
-        button {
-            background-color: #16a34a;
-            color: white;
-            font-weight: bold;
-            cursor: pointer;
+        .brand{display:flex; align-items:center; gap:10px;}
+        .brand .logo-img{
+            width:38px;height:38px;object-fit:contain;display:block;
         }
-        .error {
-            color: #f87171;
-            margin-top: 10px;
+        .brand .name{font-size:18px;font-weight:700;letter-spacing:1px;}
+        .brand .sub{font-size:12px;color:var(--muted);margin-left:4px;}
+
+        .page{padding:28px; max-width:1100px; margin:0 auto;}
+
+        /* ===== Botões ===== */
+        .btn{
+            display:inline-flex;align-items:center;gap:6px;
+            border:none;cursor:pointer;font-size:13px;font-weight:600;
+            padding:9px 14px;border-radius:9px;transition:.15s ease;
+            color:#fff;
+        }
+        .btn:hover{transform:translateY(-1px);}
+        .btn-primary{background:var(--green);}
+        .btn-primary:hover{background:var(--green-2);}
+        .btn-light{background:#1b2c3a;color:var(--text);}
+        .btn-light:hover{background:#223544;}
+        .btn-danger{background:var(--danger);}
+        .btn-warning{background:var(--warning);color:#3a2a08;}
+        .btn-sm{padding:7px 10px;font-size:12px;border-radius:8px;}
+
+        /* ===== Inputs ===== */
+        label{display:block;font-size:13px;color:var(--muted);margin:14px 0 6px;}
+        input, select{
+            width:100%;padding:11px 12px;border-radius:9px;
+            border:1px solid var(--border);
+            background:#0a1622;color:var(--text);font-size:14px;
+            outline:none;
+        }
+        input:focus, select:focus{border-color:var(--green-2);}
+
+        /* ===== Card ===== */
+        .card{
+            background:linear-gradient(180deg,var(--panel),var(--panel-2));
+            border:1px solid var(--border);
+            border-radius:16px;
+            box-shadow:0 18px 50px rgba(0,0,0,0.45);
+            padding:30px;
+        }
+        .card-narrow{max-width:430px;margin:50px auto;}
+
+        h1.page-title{font-size:24px;font-weight:700;margin:0;}
+        .hint{color:var(--muted);font-size:13px;}
+
+        /* ===== Badges ===== */
+        .badge{padding:4px 11px;border-radius:999px;font-size:12px;font-weight:700;display:inline-block;}
+        .b-green{background:rgba(122,163,63,0.16);color:var(--green-light);}
+        .b-red{background:rgba(192,57,43,0.18);color:var(--danger-light);}
+        .b-amber{background:var(--warning-bg);color:var(--warning);}
+        .b-muted{background:#16252f;color:var(--muted);}
+
+        .error{
+            color:var(--danger-light);background:rgba(192,57,43,0.12);
+            border:1px solid rgba(192,57,43,0.3);padding:10px 12px;border-radius:9px;
+            font-size:13px;margin-bottom:10px;
         }
     </style>
+    {% block head_extra %}{% endblock %}
 </head>
 <body>
-    <div class="container">
-        {% block content %}{% endblock %}
+    <div class="topbar">
+        <a href="/admin/usuarios" class="brand">
+            <img src="/static/logo_symbol.png" alt="AGRIVIA" class="logo-img">
+            <div>
+                <span class="name">AGRIVIA</span>
+                <span class="sub">Admin</span>
+            </div>
+        </a>
+        {% block topbar_right %}{% endblock %}
     </div>
+
+    {% block content %}{% endblock %}
 </body>
 </html>

@@ -1,17 +1,29 @@
 {% extends "base.html" %}
 
-{% block title %}Login Admin{% endblock %}
+{% block title %}AGRIVIA · Login{% endblock %}
 
 {% block content %}
-<h2>Admin ProjetAgro</h2>
+<div class="page">
+    <div class="card card-narrow">
+        <h1 class="page-title">Entrar no painel</h1>
+        <p class="hint" style="margin-top:6px;">Acesso restrito ao administrador.</p>
 
-<form method="post">
-    <input type="email" name="email" placeholder="Email" required>
-    <input type="password" name="senha" placeholder="Senha" required>
-    <button type="submit">Entrar</button>
-</form>
+        <form method="post" style="margin-top:14px;">
+            <label>E-mail</label>
+            <input type="email" name="email" placeholder="seu@email.com" required>
 
-{% if error %}
-<div class="error">{{ error }}</div>
-{% endif %}
+            <label>Senha</label>
+            <input type="password" name="senha" placeholder="••••••••" required>
+
+            <button type="submit" class="btn btn-primary"
+                    style="width:100%;justify-content:center;margin-top:22px;padding:12px;">
+                Entrar
+            </button>
+        </form>
+
+        {% if error %}
+        <div class="error" style="margin-top:14px;">{{ error }}</div>
+        {% endif %}
+    </div>
+</div>
 {% endblock %}
