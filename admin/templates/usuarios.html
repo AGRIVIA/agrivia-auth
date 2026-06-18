@@ -189,10 +189,12 @@
                                 </form>
                                 {% endif %}
 
+                                {% if u.id != admin_atual_id %}
                                 <form method="post" action="/admin/usuarios/{{ u.id }}/excluir"
                                       onsubmit="return confirm('Excluir definitivamente a conta de {{ u.email }}? Isso remove apenas o LOGIN no servidor. Os dados da fazenda no computador do cliente NÃO sao afetados.');">
                                     <button class="btn btn-danger btn-sm" type="submit" title="Excluir cadastro">🗑️</button>
                                 </form>
+                                {% endif %}
                             </div>
                         </td>
                     </tr>

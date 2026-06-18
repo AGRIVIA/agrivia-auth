@@ -189,6 +189,7 @@ def listar_usuarios(
         "usuarios.html",
         {
             "usuarios": usuarios_view,
+            "admin_atual_id": admin_id,
             "busca": busca or "",
             "filtro": filtro or "",
             "ok": ok or "",
