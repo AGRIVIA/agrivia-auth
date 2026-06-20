@@ -13,13 +13,15 @@
 # precisa baixar antes de subir. Assim um PC antigo nunca
 # sobrescreve dados mais recentes.
 # ===============================================================
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, Form, UploadFile, File, HTTPException
 from fastapi.responses import Response
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import DbSnapshot, Usuario
+from models import DbSnapshot, DeviceAtividade, Usuario
 from auth import get_current_user
 
 router = APIRouter(prefix="/api/sync", tags=["Sync"])
@@ -36,6 +38,34 @@ def _versao_atual(db: Session, user_id: int) -> int:
         .scalar()
     )
     return int(v or 0)
+
+
+def _registrar_dispositivo(db: Session, user_id: int, device_id: str):
+    """Anota que este aparelho (device_id) usou esta conta. Usado para
+    DETECTAR contas em vários aparelhos (possível compartilhamento)."""
+    if not device_id:
+        return
+    agora = datetime.utcnow()
+    reg = (
+        db.query(DeviceAtividade)
+        .filter(
+            DeviceAtividade.user_id == user_id,
+            DeviceAtividade.device_id == device_id,
+        )
+        .first()
+    )
+    if reg:
+        reg.ultimo_em = agora
+        reg.acessos = (reg.acessos or 0) + 1
+    else:
+        db.add(DeviceAtividade(
+            user_id=user_id,
+            device_id=device_id,
+            primeiro_em=agora,
+            ultimo_em=agora,
+            acessos=1,
+        ))
+    db.commit()
 
 
 # ---------------------------------------------------------------
@@ -119,6 +149,9 @@ def upload_snapshot(
         for a in antigas:
             db.delete(a)
         db.commit()
+
+    # Anti-compartilhamento: anota o aparelho que enviou.
+    _registrar_dispositivo(db, user.id, device_id)
 
     print(f"[sync] upload user={user.id} versao={nova_versao} tamanho={len(conteudo)} bytes")
     return {"success": True, "version": nova_versao}

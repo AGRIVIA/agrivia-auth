@@ -6,7 +6,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from database import SessionLocal
-from models import Usuario, DbSnapshot
+from models import Usuario, DbSnapshot, DeviceAtividade
 from auth import verify_password, hash_password
 from email_service import enviar_confirmacao
 from datetime import date, datetime, timedelta
@@ -123,6 +123,17 @@ def listar_usuarios(
     hoje = date.today()
     termo = (busca or "").strip().lower()
 
+    # Anti-compartilhamento: aparelhos vistos por conta nos últimos 14 dias.
+    limite_disp = datetime.utcnow() - timedelta(days=14)
+    regs_disp = (
+        db.query(DeviceAtividade)
+        .filter(DeviceAtividade.ultimo_em >= limite_disp)
+        .all()
+    )
+    dispositivos_por_user = {}
+    for r in regs_disp:
+        dispositivos_por_user.setdefault(r.user_id, []).append(r)
+
     # Contadores SEMPRE sobre o total (não sobre o que está filtrado na tela).
     total = len(usuarios)
     n_ativos = 0
@@ -173,6 +184,15 @@ def listar_usuarios(
         if filtro == "nao_confirmados" and confirmado:
             continue
 
+        devs = dispositivos_por_user.get(u.id, [])
+        devs_ordenados = sorted(
+            devs, key=lambda x: x.ultimo_em or datetime.min, reverse=True
+        )
+        devs_detalhe = " | ".join(
+            f"{(d.device_id or '?')[:8]}… (últ. uso {d.ultimo_em.strftime('%d/%m %H:%M')})"
+            for d in devs_ordenados
+        )
+
         usuarios_view.append({
             "id": u.id,
             "nome": u.nome,
@@ -180,6 +200,8 @@ def listar_usuarios(
             "status": u.status,
             "is_admin": u.is_admin,
             "confirmado": confirmado,
+            "n_dispositivos": len(devs),
+            "dispositivos_detalhe": devs_detalhe,
             "vencimento": venc_data.strftime("%d/%m/%Y") if venc_data else None,
             "vencimento_status": venc_status
         })
@@ -279,9 +301,10 @@ def excluir_usuario_action(
     if not usuario:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
 
-    # Apaga primeiro as cópias do banco na nuvem deste usuário (senão o
-    # banco recusa excluir o usuário por causa do vínculo entre as tabelas).
+    # Apaga primeiro as cópias do banco na nuvem e os registros de aparelho
+    # deste usuário (senão o banco recusa excluir por causa dos vínculos).
     db.query(DbSnapshot).filter(DbSnapshot.user_id == usuario.id).delete()
+    db.query(DeviceAtividade).filter(DeviceAtividade.user_id == usuario.id).delete()
     db.delete(usuario)
     db.commit()
     return RedirectResponse("/admin/usuarios?ok=excluido", status_code=302)

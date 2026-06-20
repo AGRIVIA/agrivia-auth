@@ -44,3 +44,22 @@ class DbSnapshot(Base):
     tamanho_bytes = Column(Integer)                  # tamanho da cópia
     device_id = Column(String, nullable=True)        # qual aparelho enviou
     criado_em = Column(DateTime, default=datetime.utcnow)
+
+
+# ===============================================================
+# SEGURANÇA — REGISTRO DE APARELHOS POR CONTA (anti-compartilhamento)
+# ---------------------------------------------------------------
+# Cada linha = um aparelho (device_id) visto usando uma conta, com
+# quando foi visto pela 1ª/última vez e quantas vezes. Serve para
+# DETECTAR (e avisar no painel) quando uma mesma conta aparece em
+# vários aparelhos — sinal de possível compartilhamento.
+# ===============================================================
+class DeviceAtividade(Base):
+    __tablename__ = "device_atividade"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("usuarios.id"), index=True, nullable=False)
+    device_id = Column(String, index=True)
+    primeiro_em = Column(DateTime, default=datetime.utcnow)
+    ultimo_em = Column(DateTime, default=datetime.utcnow)
+    acessos = Column(Integer, default=1)

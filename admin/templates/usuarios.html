@@ -115,6 +115,7 @@
                         <th>Status</th>
                         <th>E-mail conf.</th>
                         <th>Admin</th>
+                        <th>Aparelhos</th>
                         <th>Vencimento</th>
                         <th>Ações</th>
                     </tr>
@@ -147,6 +148,16 @@
                         <td>
                             {% if u.is_admin %}
                                 <span class="badge b-green">Admin</span>
+                            {% else %}
+                                <span class="hint">—</span>
+                            {% endif %}
+                        </td>
+
+                        <td>
+                            {% if u.n_dispositivos >= 2 %}
+                                <span class="badge b-red" title="{{ u.dispositivos_detalhe }}">⚠️ {{ u.n_dispositivos }} aparelhos</span>
+                            {% elif u.n_dispositivos == 1 %}
+                                <span class="badge b-muted" title="{{ u.dispositivos_detalhe }}">1</span>
                             {% else %}
                                 <span class="hint">—</span>
                             {% endif %}
@@ -200,7 +211,7 @@
                     </tr>
                 {% else %}
                     <tr>
-                        <td colspan="8" style="text-align:center;padding:30px;color:var(--muted);">
+                        <td colspan="9" style="text-align:center;padding:30px;color:var(--muted);">
                             Nenhum usuário encontrado.
                         </td>
                     </tr>
