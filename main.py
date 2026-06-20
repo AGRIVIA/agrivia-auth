@@ -15,6 +15,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from admin.admin_web import router as admin_web_router
 from admin.admin_routes import router as admin_router
+from sync_routes import router as sync_router
 
 from database import SessionLocal, engine
 from models import Base, Usuario
@@ -197,6 +198,7 @@ seed_inicial()
 # ===============================
 app.include_router(admin_web_router)
 app.include_router(admin_router)
+app.include_router(sync_router)
 
 # ===============================
 # DEPENDÊNCIA DB

@@ -1,5 +1,5 @@
 # models.py
-from sqlalchemy import Column, Integer, String, DateTime, Date
+from sqlalchemy import Column, Integer, String, DateTime, Date, LargeBinary, ForeignKey
 from datetime import datetime
 from database import Base
 
@@ -24,3 +24,23 @@ class Usuario(Base):
 
     criado_em = Column(DateTime, default=datetime.utcnow)
     atualizado_em = Column(DateTime, nullable=True)
+
+
+# ===============================================================
+# FASE 2 — CÓPIAS DO BANCO NA NUVEM (snapshots)
+# ---------------------------------------------------------------
+# Cada linha é uma cópia completa do banco SQLite do cliente
+# (compactada em gzip), guardada por usuário e por número de
+# versão. Mantemos um histórico das últimas cópias para poder
+# "voltar" a uma versão anterior se necessário.
+# ===============================================================
+class DbSnapshot(Base):
+    __tablename__ = "db_snapshots"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("usuarios.id"), index=True, nullable=False)
+    version = Column(Integer, nullable=False)        # 1, 2, 3, ... por usuário
+    conteudo = Column(LargeBinary, nullable=False)   # o banco compactado (gzip)
+    tamanho_bytes = Column(Integer)                  # tamanho da cópia
+    device_id = Column(String, nullable=True)        # qual aparelho enviou
+    criado_em = Column(DateTime, default=datetime.utcnow)
