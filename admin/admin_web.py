@@ -6,7 +6,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from database import SessionLocal
-from models import Usuario
+from models import Usuario, DbSnapshot
 from auth import verify_password, hash_password
 from email_service import enviar_confirmacao
 from datetime import date, datetime, timedelta
@@ -279,6 +279,9 @@ def excluir_usuario_action(
     if not usuario:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
 
+    # Apaga primeiro as cópias do banco na nuvem deste usuário (senão o
+    # banco recusa excluir o usuário por causa do vínculo entre as tabelas).
+    db.query(DbSnapshot).filter(DbSnapshot.user_id == usuario.id).delete()
     db.delete(usuario)
     db.commit()
     return RedirectResponse("/admin/usuarios?ok=excluido", status_code=302)
