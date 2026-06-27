@@ -335,6 +335,13 @@ def ver_aceites(
         .all()
     )
 
+    # Mostra no horário de Brasília (UTC-3). O Brasil não tem mais horário de verão.
+    for a in aceites:
+        a.data_br = (
+            (a.aceito_em - timedelta(hours=3)).strftime("%d/%m/%Y %H:%M:%S")
+            if a.aceito_em else "—"
+        )
+
     aceitou_versao_atual = any(
         a.termos_versao == TERMOS_VERSAO and a.politica_versao == POLITICA_VERSAO
         for a in aceites
@@ -374,7 +381,7 @@ def exportar_aceites_csv(
     escritor = csv.writer(buf, delimiter=";")
     escritor.writerow([
         "id", "user_id", "email", "termos_versao", "politica_versao",
-        "aceito_em_utc", "ip", "user_agent"
+        "aceito_em_brasilia", "ip", "user_agent"
     ])
     for a in aceites:
         escritor.writerow([
@@ -383,7 +390,7 @@ def exportar_aceites_csv(
             a.email or "",
             a.termos_versao or "",
             a.politica_versao or "",
-            a.aceito_em.strftime("%Y-%m-%d %H:%M:%S") if a.aceito_em else "",
+            (a.aceito_em - timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S") if a.aceito_em else "",
             a.ip or "",
             a.user_agent or "",
         ])

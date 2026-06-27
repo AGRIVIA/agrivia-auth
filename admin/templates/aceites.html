@@ -48,7 +48,7 @@
             <table>
                 <thead>
                     <tr>
-                        <th>Data/Hora (UTC)</th>
+                        <th>Data/Hora (Brasília)</th>
                         <th>Termos</th>
                         <th>Política</th>
                         <th>IP</th>
@@ -58,7 +58,7 @@
                 <tbody>
                 {% for a in aceites %}
                     <tr>
-                        <td>{{ a.aceito_em.strftime('%d/%m/%Y %H:%M:%S') if a.aceito_em else '—' }}</td>
+                        <td>{{ a.data_br }}</td>
                         <td><span class="badge b-green">v{{ a.termos_versao }}</span></td>
                         <td><span class="badge b-green">v{{ a.politica_versao }}</span></td>
                         <td>{{ a.ip or '—' }}</td>
@@ -77,7 +77,7 @@
     </div>
 
     <p class="hint" style="margin-top:14px; font-size:12px;">
-        Os horários estão em UTC. Cada linha é uma prova de aceite (documento, versão, data, IP e navegador).
+        Os horários estão no horário de Brasília (UTC−3). Cada linha é uma prova de aceite (documento, versão, data, IP e navegador).
     </p>
 </div>
 {% endblock %}
