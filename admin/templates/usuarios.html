@@ -179,6 +179,7 @@
                             <div class="row-actions">
                                 <a href="/admin/usuarios/{{ u.id }}/reset-senha" class="btn btn-light btn-sm" title="Resetar senha">🔑</a>
                                 <a href="/admin/usuarios/{{ u.id }}/vencimento" class="btn btn-light btn-sm" title="Editar vencimento">📅</a>
+                                <a href="/admin/usuarios/{{ u.id }}/aceites" class="btn btn-light btn-sm" title="Ver aceites dos termos">📄</a>
 
                                 {% if not u.confirmado %}
                                 <form method="post" action="/admin/usuarios/{{ u.id }}/reenviar-confirmacao">

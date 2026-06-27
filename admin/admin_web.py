@@ -1,7 +1,9 @@
 import os
+import io
+import csv
 import secrets
 from fastapi import APIRouter, Request, Form, Depends, HTTPException, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
@@ -9,6 +11,7 @@ from database import SessionLocal
 from models import Usuario, DbSnapshot, DeviceAtividade, AceiteTermos
 from auth import verify_password, hash_password
 from email_service import enviar_confirmacao
+from termos_config import TERMOS_VERSAO, POLITICA_VERSAO
 from datetime import date, datetime, timedelta
 
 # -------------------------------------------------
@@ -309,6 +312,90 @@ def excluir_usuario_action(
     db.delete(usuario)
     db.commit()
     return RedirectResponse("/admin/usuarios?ok=excluido", status_code=302)
+
+
+# -------------------------------------------------
+# ACEITES DOS TERMOS (comprovante / trilha de auditoria)
+# -------------------------------------------------
+@router.get("/usuarios/{user_id}/aceites", response_class=HTMLResponse)
+def ver_aceites(
+    user_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    admin: Usuario = Depends(admin_session_required)
+):
+    usuario = db.query(Usuario).filter(Usuario.id == user_id).first()
+    if not usuario:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+
+    aceites = (
+        db.query(AceiteTermos)
+        .filter(AceiteTermos.user_id == user_id)
+        .order_by(AceiteTermos.aceito_em.desc())
+        .all()
+    )
+
+    aceitou_versao_atual = any(
+        a.termos_versao == TERMOS_VERSAO and a.politica_versao == POLITICA_VERSAO
+        for a in aceites
+    )
+
+    return templates.TemplateResponse(
+        request,
+        "aceites.html",
+        {
+            "usuario": usuario,
+            "aceites": aceites,
+            "aceitou_versao_atual": aceitou_versao_atual,
+            "termos_versao": TERMOS_VERSAO,
+            "politica_versao": POLITICA_VERSAO,
+        }
+    )
+
+
+@router.get("/usuarios/{user_id}/aceites.csv")
+def exportar_aceites_csv(
+    user_id: int,
+    db: Session = Depends(get_db),
+    admin: Usuario = Depends(admin_session_required)
+):
+    usuario = db.query(Usuario).filter(Usuario.id == user_id).first()
+    if not usuario:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+
+    aceites = (
+        db.query(AceiteTermos)
+        .filter(AceiteTermos.user_id == user_id)
+        .order_by(AceiteTermos.aceito_em.asc())
+        .all()
+    )
+
+    buf = io.StringIO()
+    escritor = csv.writer(buf, delimiter=";")
+    escritor.writerow([
+        "id", "user_id", "email", "termos_versao", "politica_versao",
+        "aceito_em_utc", "ip", "user_agent"
+    ])
+    for a in aceites:
+        escritor.writerow([
+            a.id,
+            a.user_id,
+            a.email or "",
+            a.termos_versao or "",
+            a.politica_versao or "",
+            a.aceito_em.strftime("%Y-%m-%d %H:%M:%S") if a.aceito_em else "",
+            a.ip or "",
+            a.user_agent or "",
+        ])
+
+    # BOM ajuda o Excel a abrir o CSV com acentos corretos.
+    conteudo = "﻿" + buf.getvalue()
+    nome_arquivo = f"aceites_user{user_id}.csv"
+    return Response(
+        content=conteudo,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{nome_arquivo}"'},
+    )
 
 @router.get("/usuarios/novo", response_class=HTMLResponse)
 def criar_usuario_page(
