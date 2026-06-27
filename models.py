@@ -63,3 +63,25 @@ class DeviceAtividade(Base):
     primeiro_em = Column(DateTime, default=datetime.utcnow)
     ultimo_em = Column(DateTime, default=datetime.utcnow)
     acessos = Column(Integer, default=1)
+
+
+# ===============================================================
+# JURÍDICO — TRILHA DE AUDITORIA DE ACEITE DOS TERMOS
+# ---------------------------------------------------------------
+# Cada linha = UM aceite (prova). Guarda QUEM aceitou, QUAIS
+# documentos e em QUAL versão, QUANDO, de QUAL IP e navegador.
+# Tabela de HISTÓRICO: quando a versão dos documentos mudar e o
+# cliente aceitar de novo, entra uma nova linha (a antiga fica).
+# É a prova jurídica do aceite eletrônico.
+# ===============================================================
+class AceiteTermos(Base):
+    __tablename__ = "aceites_termos"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("usuarios.id"), index=True, nullable=False)
+    email = Column(String)                    # redundante de propósito (prova)
+    termos_versao = Column(String)            # ex.: "1.0"
+    politica_versao = Column(String)          # ex.: "1.0"
+    aceito_em = Column(DateTime, default=datetime.utcnow)
+    ip = Column(String, nullable=True)
+    user_agent = Column(String, nullable=True)

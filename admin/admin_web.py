@@ -6,7 +6,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from database import SessionLocal
-from models import Usuario, DbSnapshot, DeviceAtividade
+from models import Usuario, DbSnapshot, DeviceAtividade, AceiteTermos
 from auth import verify_password, hash_password
 from email_service import enviar_confirmacao
 from datetime import date, datetime, timedelta
@@ -305,6 +305,7 @@ def excluir_usuario_action(
     # deste usuário (senão o banco recusa excluir por causa dos vínculos).
     db.query(DbSnapshot).filter(DbSnapshot.user_id == usuario.id).delete()
     db.query(DeviceAtividade).filter(DeviceAtividade.user_id == usuario.id).delete()
+    db.query(AceiteTermos).filter(AceiteTermos.user_id == usuario.id).delete()
     db.delete(usuario)
     db.commit()
     return RedirectResponse("/admin/usuarios?ok=excluido", status_code=302)

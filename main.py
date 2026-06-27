@@ -3,7 +3,7 @@ import sqlite3
 import secrets
 from datetime import datetime, timedelta
 
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Request, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -18,8 +18,9 @@ from admin.admin_routes import router as admin_router
 from sync_routes import router as sync_router
 
 from database import SessionLocal, engine
-from models import Base, Usuario
+from models import Base, Usuario, AceiteTermos
 from auth import verify_password, create_access_token, hash_password
+from termos_config import TERMOS_URL, POLITICA_URL, TERMOS_VERSAO, POLITICA_VERSAO
 
 
 # Endereço público do servidor (usado no link de confirmação de e-mail).
@@ -27,6 +28,11 @@ PUBLIC_BASE_URL = os.getenv(
     "PUBLIC_BASE_URL",
     "https://agrivia-auth-production.up.railway.app"
 ).rstrip("/")
+
+# Liga/desliga a EXIGÊNCIA de aceite dos termos NO LOGIN (re-aceite quando a
+# versão dos documentos muda). DESLIGADO por padrão pra não trancar clientes
+# atuais sem decisão sua. Para ligar: defina EXIGIR_ACEITE_LOGIN=1 no Railway.
+EXIGIR_ACEITE_LOGIN = os.getenv("EXIGIR_ACEITE_LOGIN", "0") == "1"
 
 
 # ===============================
@@ -228,31 +234,126 @@ def _pagina_html(titulo: str, mensagem: str) -> str:
 
 
 # ===============================================================
-# CONFIRMAÇÃO DE E-MAIL
+# HELPERS DO ACEITE
+# ===============================================================
+def _client_ip(request: Request) -> str:
+    # Atrás do proxy do Railway, o IP real vem no cabeçalho X-Forwarded-For.
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.client.host if request.client else ""
+
+
+def _aceite_atual_valido(db: Session, user_id: int) -> bool:
+    """True se o usuário já aceitou a versão ATUAL dos dois documentos."""
+    return db.query(AceiteTermos).filter(
+        AceiteTermos.user_id == user_id,
+        AceiteTermos.termos_versao == TERMOS_VERSAO,
+        AceiteTermos.politica_versao == POLITICA_VERSAO,
+    ).first() is not None
+
+
+def _pagina_aceite(token: str, email: str, erro: str = None) -> str:
+    erro_html = ""
+    if erro:
+        erro_html = (
+            '<p style="background:rgba(192,57,43,0.15); border:1px solid #c0392b; '
+            'color:#e7897d; padding:10px 12px; border-radius:8px; font-size:14px;">'
+            f'{erro}</p>'
+        )
+    return f"""<!doctype html>
+<html lang="pt-br"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ativar conta - AGRIVIA</title></head>
+<body style="font-family: Arial, sans-serif; background:#0c1826; color:#eaf2e2; margin:0; display:flex; min-height:100vh; align-items:center; justify-content:center; padding:20px;">
+  <div style="background:#0b1320; border:1px solid #476126; border-radius:14px; padding:36px; max-width:520px; width:100%;">
+    <h1 style="color:#7aa33f; font-size:22px; margin-top:0;">Ative sua conta AGRIVIA</h1>
+    <p style="font-size:15px; line-height:1.5;">Conta: <b>{email}</b></p>
+    <p style="font-size:15px; line-height:1.5;">Para concluir a ativação, leia e aceite os documentos abaixo.</p>
+    {erro_html}
+    <form method="post" action="/confirmar">
+      <input type="hidden" name="token" value="{token}">
+      <label style="display:flex; gap:10px; align-items:flex-start; font-size:14px; line-height:1.5; background:#0c1826; border:1px solid #2b3a22; border-radius:8px; padding:14px; cursor:pointer;">
+        <input type="checkbox" name="aceite" value="1" style="margin-top:3px; width:18px; height:18px;">
+        <span>Li e aceito os
+          <a href="{TERMOS_URL}" target="_blank" rel="noopener" style="color:#9fc35a;">Termos de Uso</a>
+          e a
+          <a href="{POLITICA_URL}" target="_blank" rel="noopener" style="color:#9fc35a;">Política de Privacidade</a>
+          (Versão {TERMOS_VERSAO}).
+        </span>
+      </label>
+      <button type="submit" style="margin-top:22px; width:100%; background:#476126; color:#fff; border:none; border-radius:8px; padding:13px; font-size:15px; font-weight:bold; cursor:pointer;">
+        Ativar minha conta
+      </button>
+    </form>
+  </div>
+</body></html>"""
+
+
+# ===============================================================
+# CONFIRMAÇÃO DE E-MAIL + ACEITE DOS TERMOS
 # ===============================================================
 @app.get("/confirmar", response_class=HTMLResponse)
-def confirmar_email(token: str, db: Session = Depends(get_db)):
+def confirmar_get(token: str, db: Session = Depends(get_db)):
     user = db.query(Usuario).filter(Usuario.token_confirmacao == token).first()
-
     if not user:
         return HTMLResponse(
-            _pagina_html("Link inválido", "Este link de confirmação não é válido. Fale com o suporte."),
+            _pagina_html("Link inválido", "Este link não é válido. Fale com o suporte."),
             status_code=400
         )
-
     if user.token_expira and user.token_expira < datetime.utcnow():
         return HTMLResponse(
-            _pagina_html("Link expirado", "Este link de confirmação expirou. Peça um novo ao suporte."),
+            _pagina_html("Link expirado", "Este link expirou. Peça um novo ao suporte."),
+            status_code=400
+        )
+    return HTMLResponse(_pagina_aceite(token, user.email))
+
+
+@app.post("/confirmar", response_class=HTMLResponse)
+def confirmar_post(
+    request: Request,
+    token: str = Form(...),
+    aceite: str = Form(None),
+    db: Session = Depends(get_db),
+):
+    user = db.query(Usuario).filter(Usuario.token_confirmacao == token).first()
+    if not user:
+        return HTMLResponse(
+            _pagina_html("Link inválido", "Este link não é válido. Fale com o suporte."),
+            status_code=400
+        )
+    if user.token_expira and user.token_expira < datetime.utcnow():
+        return HTMLResponse(
+            _pagina_html("Link expirado", "Este link expirou. Peça um novo ao suporte."),
             status_code=400
         )
 
+    # ACEITE OBRIGATÓRIO: sem marcar, não ativa.
+    if not aceite:
+        return HTMLResponse(
+            _pagina_aceite(
+                token, user.email,
+                erro="Você precisa marcar o aceite dos Termos de Uso e da Política de Privacidade para continuar."
+            ),
+            status_code=400
+        )
+
+    # Ativa a conta + GRAVA A PROVA do aceite (trilha de auditoria).
     user.email_verificado = 1
     user.token_confirmacao = None
     user.token_expira = None
+    db.add(AceiteTermos(
+        user_id=user.id,
+        email=user.email,
+        termos_versao=TERMOS_VERSAO,
+        politica_versao=POLITICA_VERSAO,
+        ip=_client_ip(request),
+        user_agent=(request.headers.get("user-agent") or "")[:500],
+    ))
     db.commit()
 
     return HTMLResponse(
-        _pagina_html("E-mail confirmado!", "Pronto! Sua conta foi ativada. Você já pode entrar no AGRIVIA.")
+        _pagina_html("Conta ativada!", "Pronto! Você aceitou os termos e sua conta foi ativada. Já pode entrar no AGRIVIA.")
     )
 
 
@@ -283,6 +384,19 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
         raise HTTPException(
             status_code=403,
             detail="E-mail não confirmado. Verifique seu e-mail para ativar a conta."
+        )
+
+    # (Re)ACEITE DOS TERMOS por versão — só atua se a exigência estiver LIGADA.
+    if EXIGIR_ACEITE_LOGIN and not user.is_admin and not _aceite_atual_valido(db, user.id):
+        novo_token = secrets.token_urlsafe(32)
+        user.token_confirmacao = novo_token
+        user.token_expira = datetime.utcnow() + timedelta(days=3)
+        db.commit()
+        link = f"{PUBLIC_BASE_URL}/confirmar?token={novo_token}"
+        raise HTTPException(
+            status_code=403,
+            detail=("É necessário aceitar os Termos de Uso e a Política de Privacidade "
+                    f"atualizados. Abra este link no navegador para aceitar: {link}")
         )
 
     token = create_access_token({
