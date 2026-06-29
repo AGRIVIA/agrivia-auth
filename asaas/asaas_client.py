@@ -123,7 +123,9 @@ class AsaasClient:
         return self._request("POST", "/subscriptions", json=body)
 
     def atualizar_assinatura(self, subscription_id, **campos):
-        """Reajuste: muda value / nextDueDate / cycle mantendo o MESMO cartão tokenizado."""
+        """Reajuste: muda value / nextDueDate / cycle mantendo o MESMO cartão tokenizado.
+        Aceita updatePendingPayments=True p/ propagar o novo valor às cobranças
+        ainda em aberto."""
         return self._request("PUT", f"/subscriptions/{subscription_id}", json=campos)
 
     def cancelar_assinatura(self, subscription_id):
@@ -131,6 +133,16 @@ class AsaasClient:
 
     def consultar_assinatura(self, subscription_id):
         return self._request("GET", f"/subscriptions/{subscription_id}")
+
+    def listar_cobrancas_assinatura(self, subscription_id, limit=20):
+        """Lista as cobranças (pagamentos) geradas por uma assinatura.
+        Devolve {'data': [...]}. Usado pelo 'Sincronizar' do painel admin
+        para descobrir o status real (pago / vencido / etc.)."""
+        return self._request(
+            "GET",
+            f"/subscriptions/{subscription_id}/payments",
+            params={"limit": limit},
+        )
 
     def consultar_cobranca(self, payment_id):
         return self._request("GET", f"/payments/{payment_id}")

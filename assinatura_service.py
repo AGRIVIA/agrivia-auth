@@ -6,7 +6,7 @@
 # Salva apenas: creditCardToken + asaas_customer_id + asaas_subscription_id.
 # ===============================================================
 import json
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 
 from asaas.asaas_client import AsaasClient, AsaasError
 from models import Assinatura, Plano, AsaasEvento
@@ -33,6 +33,16 @@ def get_or_create_assinatura(db, user):
         db.commit()
         db.refresh(a)
     return a
+
+
+def assinatura_do_usuario(db, user_id):
+    """A assinatura MAIS RECENTE do usuário (ou None). Não cria nada."""
+    return (
+        db.query(Assinatura)
+        .filter(Assinatura.user_id == user_id)
+        .order_by(Assinatura.id.desc())
+        .first()
+    )
 
 
 def definir_plano(db, user, codigo):
@@ -113,6 +123,167 @@ def criar_assinatura_completa(db, user, cartao, titular, remote_ip):
 
     db.commit()
     return a
+
+
+# ===============================================================
+# AÇÕES DO PAINEL ADMIN (Fase 4)
+# ---------------------------------------------------------------
+# Cada ação primeiro fala com a Asaas (quando há assinatura lá) e
+# SÓ DEPOIS grava no banco. Assim, se a Asaas recusar, nada muda
+# localmente (o erro sobe e o painel mostra a mensagem).
+# ===============================================================
+def alterar_plano(db, assinatura, codigo):
+    """Troca o plano da assinatura. Se já existir assinatura na Asaas,
+    propaga o novo valor/ciclo (PUT subscriptions, ajustando cobranças
+    em aberto)."""
+    plano = get_plano(db, codigo)
+    if not plano:
+        raise ValueError("Plano inválido.")
+
+    if assinatura.asaas_subscription_id:
+        client = AsaasClient()
+        client.atualizar_assinatura(
+            assinatura.asaas_subscription_id,
+            value=float(plano.valor),
+            cycle=plano.ciclo,
+            updatePendingPayments=True,
+        )
+        assinatura.last_sync = datetime.utcnow()
+
+    assinatura.plano = plano.codigo
+    assinatura.ciclo = plano.ciclo
+    assinatura.valor = float(plano.valor)
+    assinatura.atualizado_em = datetime.utcnow()
+    db.commit()
+    return assinatura
+
+
+def alterar_valor(db, assinatura, novo_valor):
+    """Muda só o VALOR (mantém o plano/ciclo). Aceita vírgula ou ponto.
+    Propaga para a Asaas se houver assinatura lá."""
+    try:
+        valor = float(str(novo_valor).replace(".", "").replace(",", ".")) \
+            if ("," in str(novo_valor)) else float(novo_valor)
+    except (TypeError, ValueError):
+        raise ValueError("Valor inválido.")
+    if valor <= 0:
+        raise ValueError("O valor precisa ser maior que zero.")
+
+    if assinatura.asaas_subscription_id:
+        client = AsaasClient()
+        client.atualizar_assinatura(
+            assinatura.asaas_subscription_id,
+            value=valor,
+            updatePendingPayments=True,
+        )
+        assinatura.last_sync = datetime.utcnow()
+
+    assinatura.valor = valor
+    assinatura.atualizado_em = datetime.utcnow()
+    db.commit()
+    return assinatura
+
+
+def cancelar(db, assinatura):
+    """Cancela a assinatura na Asaas (se houver) e marca como cancelada aqui."""
+    if assinatura.asaas_subscription_id:
+        client = AsaasClient()
+        client.cancelar_assinatura(assinatura.asaas_subscription_id)
+        assinatura.last_sync = datetime.utcnow()
+
+    assinatura.status = "cancelled"
+    assinatura.cancelado_em = datetime.utcnow()
+    assinatura.atualizado_em = datetime.utcnow()
+    db.commit()
+    return assinatura
+
+
+def definir_controle(db, assinatura, controle, dias=None):
+    """Override manual do admin:
+       automatico        -> volta a seguir a Asaas
+       liberado_manual   -> libera acesso (opcionalmente por X dias)
+       bloqueado_manual  -> bloqueia o acesso, ignorando a Asaas"""
+    if controle not in ("automatico", "liberado_manual", "bloqueado_manual"):
+        raise ValueError("Controle inválido.")
+
+    assinatura.controle = controle
+    if controle == "liberado_manual" and dias:
+        try:
+            d = int(dias)
+        except (TypeError, ValueError):
+            d = 0
+        assinatura.controle_ate = (datetime.utcnow() + timedelta(days=d)) if d > 0 else None
+    else:
+        assinatura.controle_ate = None
+
+    assinatura.atualizado_em = datetime.utcnow()
+    db.commit()
+    return assinatura
+
+
+# Status da ASSINATURA na Asaas -> nosso status.
+_STATUS_SUB_PARA_LOCAL = {
+    "ACTIVE": "active",
+    "EXPIRED": "overdue",
+    "INACTIVE": "cancelled",
+}
+
+# Status da COBRANÇA na Asaas -> nosso status (mais preciso que o da assinatura).
+_STATUS_COBRANCA_PARA_LOCAL = {
+    "CONFIRMED": "active",
+    "RECEIVED": "active",
+    "RECEIVED_IN_CASH": "active",
+    "OVERDUE": "overdue",
+    "REFUNDED": "suspended",
+    "REFUND_REQUESTED": "suspended",
+    "CHARGEBACK_REQUESTED": "suspended",
+    "CHARGEBACK_DISPUTE": "suspended",
+}
+
+
+def sincronizar(db, assinatura):
+    """Puxa o estado atual da Asaas (assinatura + última cobrança) e atualiza
+    o banco. Use quando achar que um webhook foi perdido."""
+    if not assinatura.asaas_subscription_id:
+        raise ValueError("Esta assinatura ainda não tem ID na Asaas.")
+
+    client = AsaasClient()
+    sub = client.consultar_assinatura(assinatura.asaas_subscription_id)
+
+    # Dados da assinatura.
+    if sub.get("value") is not None:
+        assinatura.valor = float(sub["value"])
+    if sub.get("cycle"):
+        assinatura.ciclo = sub["cycle"]
+    if sub.get("nextDueDate"):
+        assinatura.proximo_vencimento = _parse_date(sub["nextDueDate"])
+
+    novo_status = _STATUS_SUB_PARA_LOCAL.get((sub.get("status") or "").upper())
+
+    # Última cobrança (mais precisa p/ saber se está pago/vencido).
+    try:
+        cobrancas = client.listar_cobrancas_assinatura(assinatura.asaas_subscription_id)
+        lista = cobrancas.get("data") or []
+    except AsaasError:
+        lista = []
+    if lista:
+        # A ordem da Asaas pode variar; pega a mais recente pela data de criação.
+        lista.sort(
+            key=lambda c: (c.get("dateCreated") or c.get("dueDate") or ""),
+            reverse=True,
+        )
+        ultima = lista[0]
+        assinatura.ultimo_pagamento_status = ultima.get("status")
+        mapeado = _STATUS_COBRANCA_PARA_LOCAL.get((ultima.get("status") or "").upper())
+        if mapeado:
+            novo_status = mapeado
+
+    if novo_status:
+        assinatura.status = novo_status
+    assinatura.last_sync = datetime.utcnow()
+    assinatura.atualizado_em = datetime.utcnow()
+    db.commit()
+    return assinatura
 
 
 # ===============================================================

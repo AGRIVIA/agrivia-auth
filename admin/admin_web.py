@@ -2,16 +2,19 @@ import os
 import io
 import csv
 import secrets
+from urllib.parse import quote
 from fastapi import APIRouter, Request, Form, Depends, HTTPException, status
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from database import SessionLocal
-from models import Usuario, DbSnapshot, DeviceAtividade, AceiteTermos
+from models import Usuario, DbSnapshot, DeviceAtividade, AceiteTermos, Plano, Assinatura, AsaasEvento
 from auth import verify_password, hash_password
-from email_service import enviar_confirmacao
+from email_service import enviar_confirmacao, enviar_link_assinatura
 from termos_config import TERMOS_VERSAO, POLITICA_VERSAO
+from asaas.asaas_client import AsaasError
+import assinatura_service
 from datetime import date, datetime, timedelta
 
 # -------------------------------------------------
@@ -24,6 +27,60 @@ router = APIRouter(prefix="/admin", tags=["Admin Web"])
 # independente de "de qual pasta" o servidor foi iniciado.
 _TEMPLATES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates")
 templates = Jinja2Templates(directory=_TEMPLATES_DIR)
+
+# Endereço público do servidor (para montar os links de assinatura).
+_BASE_PADRAO = "https://agrivia-auth-production.up.railway.app"
+
+# Fuso de Brasília (UTC-3, sem horário de verão) para exibir os horários.
+_BR_OFFSET = timedelta(hours=3)
+
+# Rótulos amigáveis (texto + classe de badge do base.html) por status/controle.
+_STATUS_LABEL = {
+    "active":          ("Ativa", "b-green"),
+    "trial":           ("Teste", "b-green"),
+    "pending_payment": ("Pagamento pendente", "b-amber"),
+    "overdue":         ("Vencida", "b-red"),
+    "suspended":       ("Suspensa", "b-red"),
+    "cancelled":       ("Cancelada", "b-muted"),
+}
+_CONTROLE_LABEL = {
+    "automatico":       ("Automático", "b-muted"),
+    "liberado_manual":  ("Liberado manual", "b-green"),
+    "bloqueado_manual": ("Bloqueado manual", "b-red"),
+}
+_CICLO_LABEL = {
+    "MONTHLY": "Mensal",
+    "SEMIANNUALLY": "Semestral",
+    "YEARLY": "Anual",
+}
+
+
+def _fmt_money(v):
+    if v is None:
+        return "—"
+    s = f"R$ {float(v):,.2f}"
+    return s.replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def _fmt_data(dt):
+    return dt.strftime("%d/%m/%Y") if dt else "—"
+
+
+def _fmt_dt_br(dt):
+    """Mostra um horário guardado em UTC no fuso de Brasília."""
+    return (dt - _BR_OFFSET).strftime("%d/%m/%Y %H:%M") if dt else "—"
+
+
+def _status_view(a):
+    if not a or not a.status:
+        return ("Sem assinatura", "b-muted")
+    return _STATUS_LABEL.get(a.status, (a.status, "b-muted"))
+
+
+def _controle_view(a):
+    if not a:
+        return ("—", "b-muted")
+    return _CONTROLE_LABEL.get(a.controle, (a.controle or "—", "b-muted"))
 
 
 # -------------------------------------------------
@@ -275,10 +332,7 @@ def reenviar_confirmacao_action(
     usuario.token_expira = datetime.utcnow() + timedelta(days=3)
     db.commit()
 
-    base = os.getenv(
-        "PUBLIC_BASE_URL",
-        "https://agrivia-auth-production.up.railway.app"
-    ).rstrip("/")
+    base = os.getenv("PUBLIC_BASE_URL", _BASE_PADRAO).rstrip("/")
     link = f"{base}/confirmar?token={token}"
 
     enviado = enviar_confirmacao(usuario.email, usuario.nome, link)
@@ -309,6 +363,7 @@ def excluir_usuario_action(
     db.query(DbSnapshot).filter(DbSnapshot.user_id == usuario.id).delete()
     db.query(DeviceAtividade).filter(DeviceAtividade.user_id == usuario.id).delete()
     db.query(AceiteTermos).filter(AceiteTermos.user_id == usuario.id).delete()
+    db.query(Assinatura).filter(Assinatura.user_id == usuario.id).delete()
     db.delete(usuario)
     db.commit()
     return RedirectResponse("/admin/usuarios?ok=excluido", status_code=302)
@@ -461,10 +516,7 @@ def criar_usuario_action(
     db.add(novo)
     db.commit()
 
-    base = os.getenv(
-        "PUBLIC_BASE_URL",
-        "https://agrivia-auth-production.up.railway.app"
-    ).rstrip("/")
+    base = os.getenv("PUBLIC_BASE_URL", _BASE_PADRAO).rstrip("/")
     link = f"{base}/confirmar?token={token}"
     print(f"[cadastro] link de confirmacao para {email}: {link}")
 
@@ -603,3 +655,313 @@ def salvar_vencimento(
         url="/admin/usuarios",
         status_code=302
     )
+
+
+# ===============================================================
+# ASSINATURAS (FASE 4) — PAINEL ADMIN
+# ---------------------------------------------------------------
+# Lista de clientes x assinatura, tela de detalhe por cliente e as
+# ações: alterar plano/valor, cancelar, sincronizar com a Asaas,
+# override manual (bloquear/liberar/automático) e gerar link de
+# assinatura (para enviar por e-mail/WhatsApp). Tudo dentro do
+# mesmo painel admin (visual dark/verde do base.html).
+# ===============================================================
+def _user_ou_404(db, user_id):
+    u = db.query(Usuario).filter(Usuario.id == user_id).first()
+    if not u:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+    return u
+
+
+def _voltar_detalhe(user_id, ok=None, erro=None, extra=""):
+    """Monta o RedirectResponse de volta para a tela do cliente, com a
+    mensagem de sucesso/erro (URL-encoded) — padrão PRG."""
+    partes = []
+    if ok:
+        partes.append("ok=" + quote(ok))
+    if erro:
+        partes.append("erro=" + quote(erro))
+    if extra:
+        partes.append(extra)
+    query = ("?" + "&".join(partes)) if partes else ""
+    return RedirectResponse(f"/admin/assinaturas/{user_id}{query}", status_code=302)
+
+
+@router.get("/assinaturas", response_class=HTMLResponse)
+def listar_assinaturas(
+    request: Request,
+    busca: str = "",
+    filtro: str = "",
+    db: Session = Depends(get_db),
+):
+    if not request.session.get("admin_id"):
+        return RedirectResponse("/admin/login", status_code=302)
+
+    usuarios = db.query(Usuario).filter(Usuario.is_admin == 0).order_by(Usuario.id).all()
+
+    # Assinatura MAIS RECENTE de cada usuário (1 query só).
+    todas = (
+        db.query(Assinatura)
+        .order_by(Assinatura.user_id.asc(), Assinatura.id.desc())
+        .all()
+    )
+    ass_por_user = {}
+    for a in todas:
+        ass_por_user.setdefault(a.user_id, a)  # 1ª por user (id desc) = a mais recente
+
+    termo = (busca or "").strip().lower()
+
+    # Contadores sobre o TOTAL (não sobre o filtrado).
+    total = len(usuarios)
+    n_ativas = n_pendentes = n_vencidas = n_sem = 0
+
+    linhas = []
+    for u in usuarios:
+        a = ass_por_user.get(u.id)
+        tem_sub = bool(a and a.asaas_subscription_id)
+        st = a.status if a else None
+
+        if tem_sub and st in ("active", "trial"):
+            n_ativas += 1
+        if st == "pending_payment":
+            n_pendentes += 1
+        if st in ("overdue", "suspended"):
+            n_vencidas += 1
+        if not tem_sub:
+            n_sem += 1
+
+        # ----- busca por nome/e-mail -----
+        if termo and termo not in (u.nome or "").lower() and termo not in (u.email or "").lower():
+            continue
+
+        # ----- filtro por status -----
+        if filtro == "ativas" and not (tem_sub and st in ("active", "trial")):
+            continue
+        if filtro == "pendentes" and st != "pending_payment":
+            continue
+        if filtro == "vencidas" and st not in ("overdue", "suspended"):
+            continue
+        if filtro == "sem_assinatura" and tem_sub:
+            continue
+
+        status_label, status_css = _status_view(a)
+        controle_label, controle_css = _controle_view(a)
+
+        linhas.append({
+            "id": u.id,
+            "nome": u.nome,
+            "email": u.email,
+            "plano": (a.plano.capitalize() if a and a.plano else "—"),
+            "valor": _fmt_money(a.valor) if a else "—",
+            "status_label": status_label,
+            "status_css": status_css,
+            "controle_label": controle_label,
+            "controle_css": controle_css,
+            "proximo_vencimento": _fmt_data(a.proximo_vencimento) if a else "—",
+            "customer_id": (a.asaas_customer_id if a and a.asaas_customer_id else "—"),
+            "subscription_id": (a.asaas_subscription_id if a and a.asaas_subscription_id else "—"),
+            "tem_sub": tem_sub,
+        })
+
+    return templates.TemplateResponse(
+        request,
+        "assinaturas.html",
+        {
+            "linhas": linhas,
+            "busca": busca or "",
+            "filtro": filtro or "",
+            "contadores": {
+                "total": total,
+                "ativas": n_ativas,
+                "pendentes": n_pendentes,
+                "vencidas": n_vencidas,
+                "sem": n_sem,
+            },
+        },
+    )
+
+
+@router.get("/assinaturas/{user_id}", response_class=HTMLResponse)
+def detalhe_assinatura(
+    user_id: int,
+    request: Request,
+    ok: str = "",
+    erro: str = "",
+    gerou: str = "",
+    email: str = "",
+    db: Session = Depends(get_db),
+):
+    if not request.session.get("admin_id"):
+        return RedirectResponse("/admin/login", status_code=302)
+
+    usuario = _user_ou_404(db, user_id)
+    a = assinatura_service.assinatura_do_usuario(db, user_id)
+
+    # Histórico de eventos desta assinatura (webhooks recebidos).
+    eventos = []
+    if a:
+        eventos = (
+            db.query(AsaasEvento)
+            .filter(AsaasEvento.assinatura_id == a.id)
+            .order_by(AsaasEvento.recebido_em.desc())
+            .limit(50)
+            .all()
+        )
+        for ev in eventos:
+            ev.data_br = _fmt_dt_br(ev.recebido_em)
+
+    status_label, status_css = _status_view(a)
+    controle_label, controle_css = _controle_view(a)
+
+    info = {
+        "plano": (a.plano.capitalize() if a and a.plano else "—"),
+        "ciclo": (_CICLO_LABEL.get(a.ciclo, a.ciclo) if a and a.ciclo else "—"),
+        "valor": _fmt_money(a.valor) if a else "—",
+        "status_label": status_label,
+        "status_css": status_css,
+        "controle_label": controle_label,
+        "controle_css": controle_css,
+        "controle_ate": _fmt_dt_br(a.controle_ate) if (a and a.controle_ate) else "—",
+        "proximo_vencimento": _fmt_data(a.proximo_vencimento) if a else "—",
+        "ultimo_pagamento": (a.ultimo_pagamento_status if a and a.ultimo_pagamento_status else "—"),
+        "customer_id": (a.asaas_customer_id if a and a.asaas_customer_id else "—"),
+        "subscription_id": (a.asaas_subscription_id if a and a.asaas_subscription_id else "—"),
+        "last_sync": _fmt_dt_br(a.last_sync) if (a and a.last_sync) else "—",
+        "criado_em": _fmt_dt_br(a.criado_em) if a else "—",
+        "atualizado_em": _fmt_dt_br(a.atualizado_em) if (a and a.atualizado_em) else "—",
+        "cancelado_em": _fmt_dt_br(a.cancelado_em) if (a and a.cancelado_em) else "—",
+        "tem_sub": bool(a and a.asaas_subscription_id),
+    }
+
+    # Link de assinatura recém-gerado (para copiar / mandar no WhatsApp).
+    link_gerado = None
+    if gerou:
+        base = os.getenv("PUBLIC_BASE_URL", _BASE_PADRAO).rstrip("/")
+        link_gerado = f"{base}/confirmar?token={gerou}"
+
+    return templates.TemplateResponse(
+        request,
+        "assinatura_detalhe.html",
+        {
+            "usuario": usuario,
+            "assinatura": a,
+            "info": info,
+            "eventos": eventos,
+            "planos": assinatura_service.planos_ativos(db),
+            "ok": ok or "",
+            "erro": erro or "",
+            "link_gerado": link_gerado,
+            "email_status": email or "",
+        },
+    )
+
+
+@router.post("/assinaturas/{user_id}/plano")
+def assinatura_alterar_plano(
+    user_id: int,
+    codigo: str = Form(...),
+    admin: Usuario = Depends(admin_session_required),
+    db: Session = Depends(get_db),
+):
+    usuario = _user_ou_404(db, user_id)
+    a = assinatura_service.get_or_create_assinatura(db, usuario)
+    try:
+        assinatura_service.alterar_plano(db, a, codigo)
+    except (ValueError, AsaasError) as e:
+        return _voltar_detalhe(user_id, erro=str(e))
+    return _voltar_detalhe(user_id, ok="Plano alterado com sucesso.")
+
+
+@router.post("/assinaturas/{user_id}/valor")
+def assinatura_alterar_valor(
+    user_id: int,
+    valor: str = Form(...),
+    admin: Usuario = Depends(admin_session_required),
+    db: Session = Depends(get_db),
+):
+    usuario = _user_ou_404(db, user_id)
+    a = assinatura_service.get_or_create_assinatura(db, usuario)
+    try:
+        assinatura_service.alterar_valor(db, a, valor)
+    except (ValueError, AsaasError) as e:
+        return _voltar_detalhe(user_id, erro=str(e))
+    return _voltar_detalhe(user_id, ok="Valor atualizado com sucesso.")
+
+
+@router.post("/assinaturas/{user_id}/controle")
+def assinatura_definir_controle(
+    user_id: int,
+    controle: str = Form(...),
+    dias: str = Form(None),
+    admin: Usuario = Depends(admin_session_required),
+    db: Session = Depends(get_db),
+):
+    usuario = _user_ou_404(db, user_id)
+    a = assinatura_service.get_or_create_assinatura(db, usuario)
+    try:
+        assinatura_service.definir_controle(db, a, controle, dias)
+    except ValueError as e:
+        return _voltar_detalhe(user_id, erro=str(e))
+    return _voltar_detalhe(user_id, ok="Controle de acesso atualizado.")
+
+
+@router.post("/assinaturas/{user_id}/cancelar")
+def assinatura_cancelar(
+    user_id: int,
+    admin: Usuario = Depends(admin_session_required),
+    db: Session = Depends(get_db),
+):
+    usuario = _user_ou_404(db, user_id)
+    a = assinatura_service.assinatura_do_usuario(db, user_id)
+    if not a:
+        return _voltar_detalhe(user_id, erro="Este cliente não tem assinatura para cancelar.")
+    try:
+        assinatura_service.cancelar(db, a)
+    except AsaasError as e:
+        return _voltar_detalhe(user_id, erro=str(e))
+    return _voltar_detalhe(user_id, ok="Assinatura cancelada.")
+
+
+@router.post("/assinaturas/{user_id}/sincronizar")
+def assinatura_sincronizar(
+    user_id: int,
+    admin: Usuario = Depends(admin_session_required),
+    db: Session = Depends(get_db),
+):
+    usuario = _user_ou_404(db, user_id)
+    a = assinatura_service.assinatura_do_usuario(db, user_id)
+    if not a or not a.asaas_subscription_id:
+        return _voltar_detalhe(user_id, erro="Este cliente ainda não tem assinatura na Asaas.")
+    try:
+        assinatura_service.sincronizar(db, a)
+    except (ValueError, AsaasError) as e:
+        return _voltar_detalhe(user_id, erro=str(e))
+    return _voltar_detalhe(user_id, ok="Assinatura sincronizada com a Asaas.")
+
+
+@router.post("/assinaturas/{user_id}/gerar-link")
+def assinatura_gerar_link(
+    user_id: int,
+    request: Request,
+    enviar_email: str = Form(None),
+    admin: Usuario = Depends(admin_session_required),
+    db: Session = Depends(get_db),
+):
+    usuario = _user_ou_404(db, user_id)
+
+    # Gera um token de onboarding (validade 7 dias). O cliente cai no fluxo
+    # /confirmar -> /assinar -> /assinar/cartao (reaproveita o que já existe).
+    token = secrets.token_urlsafe(32)
+    usuario.token_confirmacao = token
+    usuario.token_expira = datetime.utcnow() + timedelta(days=7)
+    db.commit()
+
+    base = os.getenv("PUBLIC_BASE_URL", _BASE_PADRAO).rstrip("/")
+    link = f"{base}/confirmar?token={token}"
+
+    email_status = "nao"
+    if enviar_email:
+        enviado = enviar_link_assinatura(usuario.email, usuario.nome, link)
+        email_status = "ok" if enviado else "falhou"
+
+    return _voltar_detalhe(user_id, extra=f"gerou={token}&email={email_status}")

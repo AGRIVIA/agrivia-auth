@@ -1,0 +1,252 @@
+{% extends "base.html" %}
+
+{% block title %}AGRIVIA · Assinatura de {{ usuario.nome }}{% endblock %}
+
+{% block head_extra %}
+<style>
+    .flash{padding:12px 14px;border-radius:10px;font-size:14px;margin-bottom:16px;}
+    .flash-ok{background:rgba(122,163,63,0.14);border:1px solid rgba(122,163,63,0.4);color:var(--green-light);}
+    .flash-erro{background:rgba(192,57,43,0.14);border:1px solid rgba(192,57,43,0.4);color:var(--danger-light);}
+    .flash-info{background:var(--warning-bg);border:1px solid rgba(224,169,63,0.4);color:var(--warning);}
+
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
+    .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;}
+    @media (max-width:820px){.grid2,.grid3{grid-template-columns:1fr;}}
+
+    .secao-titulo{font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;
+        letter-spacing:.4px;margin:0 0 12px;}
+
+    .dl{display:grid;grid-template-columns:auto 1fr;gap:8px 16px;font-size:14px;}
+    .dl dt{color:var(--muted);white-space:nowrap;}
+    .dl dd{margin:0;text-align:right;word-break:break-all;}
+    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;}
+
+    .acao{margin-bottom:0;}
+    .acao + .acao{margin-top:16px;padding-top:16px;border-top:1px solid var(--border);}
+    .acao h3{font-size:14px;margin:0 0 8px;font-weight:700;}
+    .acao p.hint{margin:0 0 10px;}
+    .acao-row{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;}
+    .acao-row form{margin:0;}
+    .acao-row .campo{display:flex;flex-direction:column;gap:4px;}
+    .acao-row .campo label{margin:0;}
+    .acao-row input, .acao-row select{min-width:120px;}
+
+    .linkbox{background:#0a1622;border:1px solid var(--green-2);border-radius:9px;padding:12px;
+        word-break:break-all;font-size:13px;color:#bcd49a;font-family:ui-monospace,Menlo,Consolas,monospace;}
+
+    .ev-table{width:100%;border-collapse:collapse;}
+    .ev-table th{text-align:left;font-size:11px;color:var(--muted);text-transform:uppercase;
+        letter-spacing:.4px;padding:8px;border-bottom:1px solid var(--border);}
+    .ev-table td{padding:8px;border-bottom:1px solid rgba(34,58,42,0.5);font-size:13px;vertical-align:top;}
+    .ev-payload{color:var(--muted);font-size:11px;cursor:pointer;}
+    .ev-payload pre{white-space:pre-wrap;word-break:break-all;margin:6px 0 0;max-width:520px;}
+</style>
+{% endblock %}
+
+{% block topbar_right %}
+<div style="display:flex;gap:10px;">
+    <a href="/admin/assinaturas" class="btn btn-light">← Assinaturas</a>
+    <a href="/admin/logout" class="btn btn-light">Sair</a>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="page" style="max-width:1000px;">
+
+    {% if ok %}<div class="flash flash-ok">✅ {{ ok }}</div>{% endif %}
+    {% if erro %}<div class="flash flash-erro">⚠️ {{ erro }}</div>{% endif %}
+
+    {% if link_gerado %}
+    <div class="flash flash-info">
+        🔗 Link de assinatura gerado (válido por 7 dias).
+        {% if email_status == 'ok' %} O e-mail foi enviado para <b>{{ usuario.email }}</b>.
+        {% elif email_status == 'falhou' %} <b>Não consegui enviar o e-mail</b> — copie o link abaixo e mande pelo WhatsApp.
+        {% endif %}
+        <div class="linkbox" style="margin-top:10px;">{{ link_gerado }}</div>
+    </div>
+    {% endif %}
+
+    <!-- Cabeçalho -->
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:18px;">
+        <div>
+            <h1 class="page-title">{{ usuario.nome }}</h1>
+            <div class="hint">{{ usuario.email }}</div>
+        </div>
+        <div style="display:flex;gap:8px;">
+            <span class="badge {{ info.status_css }}">{{ info.status_label }}</span>
+            <span class="badge {{ info.controle_css }}">{{ info.controle_label }}</span>
+        </div>
+    </div>
+
+    <div class="grid2">
+        <!-- ============ DADOS DA ASSINATURA ============ -->
+        <div class="card">
+            <p class="secao-titulo">Dados da assinatura</p>
+            <dl class="dl">
+                <dt>Plano</dt><dd>{{ info.plano }}</dd>
+                <dt>Ciclo</dt><dd>{{ info.ciclo }}</dd>
+                <dt>Valor</dt><dd>{{ info.valor }}</dd>
+                <dt>Status</dt><dd><span class="badge {{ info.status_css }}">{{ info.status_label }}</span></dd>
+                <dt>Controle</dt><dd><span class="badge {{ info.controle_css }}">{{ info.controle_label }}</span></dd>
+                {% if info.controle_ate and info.controle_ate != '—' %}
+                <dt>Liberado até</dt><dd>{{ info.controle_ate }}</dd>
+                {% endif %}
+                <dt>Próx. vencimento</dt><dd>{{ info.proximo_vencimento }}</dd>
+                <dt>Último pagamento</dt><dd>{{ info.ultimo_pagamento }}</dd>
+                <dt>Asaas — cliente</dt><dd class="mono">{{ info.customer_id }}</dd>
+                <dt>Asaas — assinatura</dt><dd class="mono">{{ info.subscription_id }}</dd>
+                <dt>Última sincronização</dt><dd>{{ info.last_sync }}</dd>
+                <dt>Criada em</dt><dd>{{ info.criado_em }}</dd>
+                <dt>Atualizada em</dt><dd>{{ info.atualizado_em }}</dd>
+                {% if info.cancelado_em and info.cancelado_em != '—' %}
+                <dt>Cancelada em</dt><dd>{{ info.cancelado_em }}</dd>
+                {% endif %}
+            </dl>
+
+            <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap;">
+                <form method="post" action="/admin/assinaturas/{{ usuario.id }}/sincronizar" style="margin:0;">
+                    <button class="btn btn-light btn-sm" type="submit" title="Puxar o estado atual da Asaas">🔄 Sincronizar com a Asaas</button>
+                </form>
+                {% if info.tem_sub %}
+                <form method="post" action="/admin/assinaturas/{{ usuario.id }}/cancelar" style="margin:0;"
+                      onsubmit="return confirm('Cancelar a assinatura de {{ usuario.email }} na Asaas? O cliente deixa de ser cobrado e perde o acesso automático.');">
+                    <button class="btn btn-danger btn-sm" type="submit">✖ Cancelar assinatura</button>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- ============ AÇÕES ============ -->
+        <div class="card">
+            <p class="secao-titulo">Plano e valor</p>
+
+            <!-- Alterar plano -->
+            <div class="acao">
+                <h3>Alterar plano</h3>
+                <p class="hint">Troca o plano e, se houver assinatura na Asaas, ajusta o valor lá também.</p>
+                <form method="post" action="/admin/assinaturas/{{ usuario.id }}/plano" class="acao-row">
+                    <div class="campo">
+                        <select name="codigo" required>
+                            {% for p in planos %}
+                            <option value="{{ p.codigo }}" {% if assinatura and assinatura.plano == p.codigo %}selected{% endif %}>
+                                {{ p.nome }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <button class="btn btn-primary btn-sm" type="submit">Salvar plano</button>
+                </form>
+            </div>
+
+            <!-- Alterar valor -->
+            <div class="acao">
+                <h3>Alterar valor</h3>
+                <p class="hint">Muda só o valor cobrado (mantém o plano). Use ponto ou vírgula. Ex.: 150,00</p>
+                <form method="post" action="/admin/assinaturas/{{ usuario.id }}/valor" class="acao-row">
+                    <div class="campo">
+                        <input type="text" name="valor" inputmode="decimal" placeholder="Ex.: 150,00" required>
+                    </div>
+                    <button class="btn btn-primary btn-sm" type="submit">Salvar valor</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="grid2" style="margin-top:18px;">
+        <!-- ============ OVERRIDE MANUAL ============ -->
+        <div class="card">
+            <p class="secao-titulo">Controle de acesso (manual)</p>
+            <p class="hint" style="margin-bottom:14px;">
+                Passa por cima do automático. Use <b>Liberar</b> (com prazo opcional) para teste de
+                negociação, <b>Bloquear</b> para trancar na hora, ou <b>Voltar ao automático</b>
+                para seguir a Asaas de novo.
+            </p>
+
+            <div class="acao">
+                <h3>Liberar manualmente</h3>
+                <form method="post" action="/admin/assinaturas/{{ usuario.id }}/controle" class="acao-row">
+                    <input type="hidden" name="controle" value="liberado_manual">
+                    <div class="campo">
+                        <label>Por quantos dias? (0 = sem prazo)</label>
+                        <input type="number" name="dias" min="0" value="0">
+                    </div>
+                    <button class="btn btn-primary btn-sm" type="submit">Liberar</button>
+                </form>
+            </div>
+
+            <div class="acao">
+                <h3>Bloquear / voltar ao automático</h3>
+                <div class="acao-row">
+                    <form method="post" action="/admin/assinaturas/{{ usuario.id }}/controle">
+                        <input type="hidden" name="controle" value="bloqueado_manual">
+                        <button class="btn btn-danger btn-sm" type="submit">Bloquear acesso</button>
+                    </form>
+                    <form method="post" action="/admin/assinaturas/{{ usuario.id }}/controle">
+                        <input type="hidden" name="controle" value="automatico">
+                        <button class="btn btn-light btn-sm" type="submit">Voltar ao automático</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============ GERAR LINK ============ -->
+        <div class="card">
+            <p class="secao-titulo">Gerar link de assinatura</p>
+            <p class="hint" style="margin-bottom:14px;">
+                Cria um link pessoal (válido por 7 dias) para o cliente escolher o plano e informar o
+                cartão. Serve para <b>clientes atuais</b> migrarem para a cobrança automática e para
+                <b>testes de negociação</b>. Você pode enviar por e-mail e/ou copiar para o WhatsApp.
+            </p>
+            <form method="post" action="/admin/assinaturas/{{ usuario.id }}/gerar-link">
+                <label style="display:flex;gap:10px;align-items:center;font-size:14px;cursor:pointer;margin:0 0 14px;">
+                    <input type="checkbox" name="enviar_email" value="1" style="width:18px;height:18px;">
+                    Enviar também por e-mail para {{ usuario.email }}
+                </label>
+                <button class="btn btn-primary btn-sm" type="submit">🔗 Gerar link</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- ============ HISTÓRICO DE EVENTOS ============ -->
+    <div class="card" style="margin-top:18px;">
+        <p class="secao-titulo">Histórico de eventos (Asaas)</p>
+        {% if eventos %}
+        <div style="overflow-x:auto;">
+            <table class="ev-table">
+                <thead>
+                    <tr>
+                        <th>Quando (Brasília)</th>
+                        <th>Evento</th>
+                        <th>Processado</th>
+                        <th>Detalhes</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for ev in eventos %}
+                    <tr>
+                        <td style="white-space:nowrap;">{{ ev.data_br }}</td>
+                        <td><span class="mono">{{ ev.tipo or '—' }}</span></td>
+                        <td>
+                            {% if ev.processado %}<span class="badge b-green">Sim</span>
+                            {% else %}<span class="badge b-muted">Não</span>{% endif %}
+                        </td>
+                        <td>
+                            {% if ev.payload %}
+                            <details>
+                                <summary class="ev-payload">ver payload</summary>
+                                <pre>{{ ev.payload }}</pre>
+                            </details>
+                            {% else %}<span class="hint">—</span>{% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="hint">Nenhum evento recebido da Asaas para esta assinatura ainda.</p>
+        {% endif %}
+    </div>
+
+</div>
+{% endblock %}
