@@ -7,7 +7,13 @@
 # ===============================================================
 import os
 
-ASAAS_API_KEY = os.getenv("ASAAS_API_KEY", "")
+# A chave da Asaas começa com "$" (ex.: $aact_...). O Railway interpreta o "$"
+# inicial como referência de variável e ZERA o valor. Solução robusta: guarde a
+# chave SEM o "$" no Railway; o código recoloca o "$" aqui automaticamente.
+_chave = os.getenv("ASAAS_API_KEY", "").strip()
+if _chave and not _chave.startswith("$"):
+    _chave = "$" + _chave
+ASAAS_API_KEY = _chave
 ASAAS_ENVIRONMENT = os.getenv("ASAAS_ENVIRONMENT", "sandbox").strip().lower()
 ASAAS_WEBHOOK_TOKEN = os.getenv("ASAAS_WEBHOOK_TOKEN", "")
 
