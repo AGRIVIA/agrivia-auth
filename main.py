@@ -22,6 +22,7 @@ from models import Base, Usuario, AceiteTermos, Plano, Assinatura
 from auth import verify_password, create_access_token, hash_password
 from termos_config import TERMOS_URL, POLITICA_URL, TERMOS_VERSAO, POLITICA_VERSAO
 from planos_config import PLANOS_PADRAO
+from asaas import config as asaas_config
 from asaas.asaas_client import AsaasError
 import assinatura_service
 
@@ -218,6 +219,10 @@ def seed_planos():
 migrar_colunas_email()
 seed_inicial()
 seed_planos()
+
+# Diagnóstico seguro (NUNCA imprime a chave, só o tamanho dela).
+print(f"[asaas] configurado={asaas_config.configurado()} | ambiente={asaas_config.ASAAS_ENVIRONMENT} "
+      f"| base={asaas_config.ASAAS_BASE_URL} | key_len={len(asaas_config.ASAAS_API_KEY)}")
 
 # ===============================
 # ROUTERS

@@ -41,6 +41,11 @@ class AsaasClient:
         }
 
     def _request(self, method, path, json=None, params=None, _tentativa=1):
+        if not self.api_key:
+            raise AsaasError(
+                "Integração Asaas não configurada no servidor (ASAAS_API_KEY ausente). "
+                "Verifique as variáveis no Railway."
+            )
         url = self.base_url + path
         try:
             resp = requests.request(
