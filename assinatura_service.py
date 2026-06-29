@@ -5,10 +5,11 @@
 # o cartão só existe em memória durante a chamada de tokenização.
 # Salva apenas: creditCardToken + asaas_customer_id + asaas_subscription_id.
 # ===============================================================
+import json
 from datetime import datetime, date
 
 from asaas.asaas_client import AsaasClient, AsaasError
-from models import Assinatura, Plano
+from models import Assinatura, Plano, AsaasEvento
 
 
 def get_plano(db, codigo):
@@ -112,3 +113,102 @@ def criar_assinatura_completa(db, user, cartao, titular, remote_ip):
 
     db.commit()
     return a
+
+
+# ===============================================================
+# ACESSO (status automático + override manual do admin)
+# ===============================================================
+def acesso_liberado(db, user):
+    """Decide se o usuário tem acesso. Retorna (liberado: bool, motivo: str).
+    Considera: bloqueio manual do admin, override da assinatura e o status
+    automático (Asaas). Cliente SEM assinatura = grandfathered (cliente antigo)."""
+    if user.status == "bloqueado":
+        return False, "bloqueado_admin"
+
+    a = (
+        db.query(Assinatura)
+        .filter(Assinatura.user_id == user.id)
+        .order_by(Assinatura.id.desc())
+        .first()
+    )
+    if not a:
+        # cliente antigo (criado antes das assinaturas) -> segue o status do usuário
+        return (user.status == "ativo"), "sem_assinatura"
+
+    # Override manual do admin (com prazo opcional).
+    if a.controle == "bloqueado_manual":
+        return False, "bloqueado_manual"
+    if a.controle == "liberado_manual":
+        if not a.controle_ate or a.controle_ate >= datetime.utcnow():
+            return True, "liberado_manual"
+        # prazo do override venceu -> cai no automático abaixo
+
+    # Automático (vindo da Asaas / webhook).
+    if a.status in ("active", "trial"):
+        return True, "ativo"
+    return False, (a.status or "pending_payment")
+
+
+# ===============================================================
+# WEBHOOK (idempotente + histórico)
+# ===============================================================
+_EVENTO_PARA_STATUS = {
+    "PAYMENT_CONFIRMED": "active",
+    "PAYMENT_RECEIVED": "active",
+    "PAYMENT_OVERDUE": "overdue",
+    "PAYMENT_REFUNDED": "suspended",
+    "PAYMENT_CHARGEBACK_REQUESTED": "suspended",
+    "PAYMENT_CHARGEBACK_DISPUTE": "suspended",
+    "PAYMENT_DELETED": "cancelled",
+    "SUBSCRIPTION_DELETED": "cancelled",
+}
+
+_CHAVES_SENSIVEIS = ("creditCard", "creditCardToken", "creditCardHolderInfo")
+
+
+def _sanitizar(obj):
+    """Remove qualquer dado de cartão antes de guardar o payload do webhook."""
+    if isinstance(obj, dict):
+        return {k: _sanitizar(v) for k, v in obj.items() if k not in _CHAVES_SENSIVEIS}
+    if isinstance(obj, list):
+        return [_sanitizar(x) for x in obj]
+    return obj
+
+
+def processar_webhook(db, payload):
+    """Processa um evento do Asaas (IDEMPOTENTE). Atualiza o status da
+    assinatura e guarda o evento (sanitizado) como histórico."""
+    event_id = payload.get("id")
+    tipo = payload.get("event")
+
+    # Idempotência: não processa o mesmo evento duas vezes.
+    if event_id and db.query(AsaasEvento).filter(AsaasEvento.asaas_event_id == event_id).first():
+        return
+
+    pagamento = payload.get("payment") or {}
+    assinatura_payload = payload.get("subscription") or {}
+    sub_id = pagamento.get("subscription") or assinatura_payload.get("id")
+
+    assinatura = None
+    if sub_id:
+        assinatura = db.query(Assinatura).filter(Assinatura.asaas_subscription_id == sub_id).first()
+
+    ev = AsaasEvento(
+        asaas_event_id=event_id,
+        tipo=tipo,
+        assinatura_id=(assinatura.id if assinatura else None),
+        payload=json.dumps(_sanitizar(payload), ensure_ascii=False)[:5000],
+        processado=0,
+    )
+    db.add(ev)
+
+    if assinatura:
+        novo_status = _EVENTO_PARA_STATUS.get(tipo)
+        if novo_status:
+            assinatura.status = novo_status
+            assinatura.ultimo_pagamento_status = pagamento.get("status")
+            assinatura.last_sync = datetime.utcnow()
+            assinatura.atualizado_em = datetime.utcnow()
+        ev.processado = 1
+
+    db.commit()

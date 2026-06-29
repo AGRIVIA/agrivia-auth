@@ -376,6 +376,9 @@ def confirmar_post(
     ))
     db.commit()
 
+    # Garante uma assinatura PENDENTE (o acesso fica bloqueado até pagar).
+    assinatura_service.get_or_create_assinatura(db, user)
+
     # Segue para a escolha do plano (mantém o token na URL).
     return RedirectResponse(url=f"/assinar?token={token}", status_code=303)
 
@@ -537,6 +540,27 @@ def cartao_post(
     )
 
 
+# ===============================================================
+# WEBHOOK ASAAS (mantém o status da assinatura sozinho)
+# ===============================================================
+@app.post("/webhooks/asaas")
+async def webhook_asaas(request: Request, db: Session = Depends(get_db)):
+    # Valida o token secreto que VOCÊ configura no painel da Asaas.
+    if asaas_config.ASAAS_WEBHOOK_TOKEN:
+        if request.headers.get("asaas-access-token", "") != asaas_config.ASAAS_WEBHOOK_TOKEN:
+            raise HTTPException(status_code=401, detail="webhook nao autorizado")
+    try:
+        payload = await request.json()
+        assinatura_service.processar_webhook(db, payload)
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        print("[asaas] erro no webhook:", e)
+        raise HTTPException(status_code=500, detail="erro ao processar webhook")
+    return {"received": True}
+
+
 # ===============================
 # SCHEMA LOGIN (DESKTOP)
 # ===============================
@@ -553,12 +577,6 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
 
     if not user or not verify_password(data.senha, user.senha_hash):
         raise HTTPException(status_code=401, detail="Usuário ou senha inválidos")
-
-    if user.status != "ativo":
-        raise HTTPException(
-            status_code=403,
-            detail=f"Usuário {user.status}. Contate o suporte."
-        )
 
     if not user.email_verificado:
         raise HTTPException(
@@ -578,6 +596,20 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
             detail=("É necessário aceitar os Termos de Uso e a Política de Privacidade "
                     f"atualizados. Abra este link no navegador para aceitar: {link}")
         )
+
+    # ACESSO por assinatura (+ override manual do admin).
+    liberado, motivo = assinatura_service.acesso_liberado(db, user)
+    if not liberado:
+        _MSG = {
+            "bloqueado_admin": "Conta bloqueada. Fale com o suporte.",
+            "bloqueado_manual": "Acesso bloqueado pelo administrador. Fale com o suporte.",
+            "overdue": "Sua assinatura está vencida. Regularize o pagamento para continuar.",
+            "suspended": "Sua assinatura está suspensa. Fale com o suporte.",
+            "cancelled": "Sua assinatura foi cancelada. Fale com o suporte para reativar.",
+            "pending_payment": "Pagamento pendente. Conclua sua assinatura para liberar o acesso.",
+            "sem_assinatura": "Conta inativa. Fale com o suporte.",
+        }
+        raise HTTPException(status_code=403, detail=_MSG.get(motivo, "Acesso indisponível. Fale com o suporte."))
 
     token = create_access_token({
         "sub": user.email,
