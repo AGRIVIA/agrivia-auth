@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block title %}AGRIVIA · Reajuste concluído{% endblock %}
+
+{% block head_extra %}
+<style>
+    .resumo{background:rgba(122,163,63,0.14);border:1px solid rgba(122,163,63,0.4);color:var(--green-light);
+        padding:16px 18px;border-radius:12px;font-size:15px;margin-bottom:20px;line-height:1.5;}
+    .resumo b{color:var(--text);}
+
+    .bloco{margin-bottom:18px;}
+    .bloco h3{font-size:14px;margin:0 0 10px;font-weight:700;}
+    .lista{list-style:none;padding:0;margin:0;}
+    .lista li{padding:10px 12px;border:1px solid var(--border);border-radius:9px;margin-bottom:8px;font-size:14px;}
+    .lista .email{font-size:12px;color:var(--muted);}
+    .lista .erro{font-size:13px;color:var(--danger-light);margin-top:4px;}
+    .pill{display:inline-block;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;margin-left:6px;}
+    .pill-ok{background:rgba(122,163,63,0.18);color:var(--green-light);}
+    .pill-falha{background:rgba(192,57,43,0.18);color:var(--danger-light);}
+    .pill-local{background:#16252f;color:var(--muted);}
+</style>
+{% endblock %}
+
+{% block topbar_right %}
+<div style="display:flex;gap:10px;">
+    <a href="/admin/planos" class="btn btn-light">← Planos</a>
+    <a href="/admin/logout" class="btn btn-light">Sair</a>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="page" style="max-width:820px;">
+
+    <h1 class="page-title" style="margin-bottom:14px;">Reajuste concluído</h1>
+
+    <div class="resumo">
+        Plano <b>{{ rel.plano_nome }}</b> reajustado de <b>{{ rel.valor_antigo_fmt }}</b>
+        para <b>{{ rel.valor_novo_fmt }}</b>.<br>
+        ✅ {{ rel.ok|length }} atualizada(s) na Asaas
+        · ⚠️ {{ rel.falha|length }} falha(s)
+        · 🟡 {{ rel.local|length }} só local (sem assinatura na Asaas).
+    </div>
+
+    {% if rel.falha %}
+    <div class="bloco">
+        <h3>⚠️ Falhas <span class="pill pill-falha">{{ rel.falha|length }}</span></h3>
+        <ul class="lista">
+            {% for x in rel.falha %}
+            <li>
+                {{ x.nome }} <span class="email">{{ x.email }}</span>
+                <div class="erro">Motivo: {{ x.erro }}</div>
+            </li>
+            {% endfor %}
+        </ul>
+        <p class="hint">Dica: abra o cliente em 💳 Assinaturas e use <b>🔄 Sincronizar</b> ou tente o reajuste de novo.</p>
+    </div>
+    {% endif %}
+
+    {% if rel.ok %}
+    <div class="bloco">
+        <h3>✅ Atualizadas na Asaas <span class="pill pill-ok">{{ rel.ok|length }}</span></h3>
+        <ul class="lista">
+            {% for x in rel.ok %}
+            <li>{{ x.nome }} <span class="email">{{ x.email }}</span></li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+
+    {% if rel.local %}
+    <div class="bloco">
+        <h3>🟡 Só local (sem assinatura na Asaas) <span class="pill pill-local">{{ rel.local|length }}</span></h3>
+        <ul class="lista">
+            {% for x in rel.local %}
+            <li>{{ x.nome }} <span class="email">{{ x.email }}</span></li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+
+    {% if not rel.ok and not rel.falha and not rel.local %}
+    <p class="hint">Nenhuma assinatura atual neste plano. O valor do plano foi atualizado para novos assinantes.</p>
+    {% endif %}
+
+    <a href="/admin/planos" class="btn btn-primary" style="margin-top:10px;">Voltar para os planos</a>
+</div>
+{% endblock %}

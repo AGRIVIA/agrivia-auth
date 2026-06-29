@@ -9,7 +9,7 @@ import json
 from datetime import datetime, date, timedelta
 
 from asaas.asaas_client import AsaasClient, AsaasError
-from models import Assinatura, Plano, AsaasEvento
+from models import Assinatura, Plano, AsaasEvento, Usuario
 
 
 def get_plano(db, codigo):
@@ -18,6 +18,24 @@ def get_plano(db, codigo):
 
 def planos_ativos(db):
     return db.query(Plano).filter(Plano.ativo == 1).order_by(Plano.valor.asc()).all()
+
+
+def parse_valor(s):
+    """Converte um valor digitado (com vírgula OU ponto) em float > 0.
+    Ex.: '150,00' -> 150.0 ; '1.750,00' -> 1750.0 ; '1750' -> 1750.0.
+    Levanta ValueError se for inválido ou <= 0."""
+    txt = str(s).strip()
+    try:
+        if "," in txt:
+            # formato brasileiro: ponto é separador de milhar, vírgula é decimal.
+            valor = float(txt.replace(".", "").replace(",", "."))
+        else:
+            valor = float(txt)
+    except (TypeError, ValueError):
+        raise ValueError("Valor inválido.")
+    if valor <= 0:
+        raise ValueError("O valor precisa ser maior que zero.")
+    return valor
 
 
 def get_or_create_assinatura(db, user):
@@ -161,13 +179,7 @@ def alterar_plano(db, assinatura, codigo):
 def alterar_valor(db, assinatura, novo_valor):
     """Muda só o VALOR (mantém o plano/ciclo). Aceita vírgula ou ponto.
     Propaga para a Asaas se houver assinatura lá."""
-    try:
-        valor = float(str(novo_valor).replace(".", "").replace(",", ".")) \
-            if ("," in str(novo_valor)) else float(novo_valor)
-    except (TypeError, ValueError):
-        raise ValueError("Valor inválido.")
-    if valor <= 0:
-        raise ValueError("O valor precisa ser maior que zero.")
+    valor = parse_valor(novo_valor)
 
     if assinatura.asaas_subscription_id:
         client = AsaasClient()
@@ -284,6 +296,98 @@ def sincronizar(db, assinatura):
     assinatura.atualizado_em = datetime.utcnow()
     db.commit()
     return assinatura
+
+
+# ===============================================================
+# REAJUSTE EM MASSA (Fase 5)
+# ---------------------------------------------------------------
+# Muda o valor de um PLANO e propaga para TODAS as assinaturas
+# ATUAIS daquele plano na Asaas (PUT /subscriptions, ajustando as
+# cobranças em aberto). Cada cliente entra com a sua assinatura
+# MAIS RECENTE (ignora histórico e canceladas). Falha em uma
+# assinatura não derruba as outras — vira item no relatório.
+# ===============================================================
+def assinaturas_atuais_do_plano(db, codigo):
+    """A assinatura mais recente de cada usuário cujo plano atual == codigo
+    e que NÃO esteja cancelada."""
+    todas = (
+        db.query(Assinatura)
+        .order_by(Assinatura.user_id.asc(), Assinatura.id.desc())
+        .all()
+    )
+    atual_por_user = {}
+    for a in todas:
+        atual_por_user.setdefault(a.user_id, a)  # 1ª por user (id desc) = a mais recente
+    return [
+        a for a in atual_por_user.values()
+        if a.plano == codigo and a.status != "cancelled"
+    ]
+
+
+def reajustar_plano(db, codigo, novo_valor):
+    """Aplica o reajuste: atualiza o valor do plano e propaga para as
+    assinaturas atuais. Retorna um relatório (dict) com as listas
+    ok / falha / local. Levanta ValueError se o valor/plano for inválido."""
+    valor = parse_valor(novo_valor)
+
+    plano = db.query(Plano).filter(Plano.codigo == codigo).first()
+    if not plano:
+        raise ValueError("Plano não encontrado.")
+    valor_antigo = plano.valor
+
+    alvos = assinaturas_atuais_do_plano(db, codigo)
+    user_ids = [a.user_id for a in alvos]
+    usuarios = {}
+    if user_ids:
+        usuarios = {
+            u.id: u for u in db.query(Usuario).filter(Usuario.id.in_(user_ids)).all()
+        }
+
+    client = AsaasClient()
+    rel = {"ok": [], "falha": [], "local": []}
+
+    for a in alvos:
+        u = usuarios.get(a.user_id)
+        nome = u.nome if u else f"usuário #{a.user_id}"
+        email = u.email if u else ""
+
+        if a.asaas_subscription_id:
+            try:
+                client.atualizar_assinatura(
+                    a.asaas_subscription_id,
+                    value=valor,
+                    updatePendingPayments=True,
+                )
+            except AsaasError as e:
+                # Falhou na Asaas: NÃO mexe no valor local (continua refletindo a Asaas).
+                rel["falha"].append({
+                    "nome": nome, "email": email,
+                    "sub_id": a.asaas_subscription_id, "erro": str(e),
+                })
+                continue
+            a.valor = valor
+            a.last_sync = datetime.utcnow()
+            a.atualizado_em = datetime.utcnow()
+            rel["ok"].append({
+                "nome": nome, "email": email, "sub_id": a.asaas_subscription_id,
+            })
+        else:
+            # Sem assinatura na Asaas: só atualiza o valor local.
+            a.valor = valor
+            a.atualizado_em = datetime.utcnow()
+            rel["local"].append({"nome": nome, "email": email})
+
+    # O valor do plano sempre é atualizado (vale para novos assinantes).
+    plano.valor = valor
+    plano.atualizado_em = datetime.utcnow()
+    db.commit()
+
+    rel["plano_nome"] = plano.nome
+    rel["codigo"] = plano.codigo
+    rel["valor_antigo"] = valor_antigo
+    rel["valor_novo"] = valor
+    rel["total"] = len(alvos)
+    return rel
 
 
 # ===============================================================

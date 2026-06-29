@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+
+{% block title %}AGRIVIA · Revisar reajuste{% endblock %}
+
+{% block head_extra %}
+<style>
+    .aviso{background:var(--warning-bg);border:1px solid rgba(224,169,63,0.4);color:var(--warning);
+        padding:14px 16px;border-radius:10px;font-size:14px;margin-bottom:18px;line-height:1.5;}
+    .depara{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:10px 0 20px;}
+    .depara .box{background:#0a1622;border:1px solid var(--border);border-radius:12px;padding:14px 20px;text-align:center;}
+    .depara .rotulo{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;}
+    .depara .valor{font-size:24px;font-weight:800;}
+    .depara .seta{font-size:24px;color:var(--green-light);}
+    .depara .novo{color:var(--green-light);}
+
+    table{width:100%;border-collapse:collapse;}
+    thead th{text-align:left;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;
+        padding:10px;border-bottom:1px solid var(--border);}
+    tbody td{padding:10px;border-bottom:1px solid rgba(34,58,42,0.5);font-size:14px;}
+    .cli-email{font-size:12px;color:var(--muted);}
+    .acoes{display:flex;gap:10px;margin-top:22px;}
+</style>
+{% endblock %}
+
+{% block topbar_right %}
+<div style="display:flex;gap:10px;">
+    <a href="/admin/planos" class="btn btn-light">← Planos</a>
+    <a href="/admin/logout" class="btn btn-light">Sair</a>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="page" style="max-width:900px;">
+
+    <h1 class="page-title" style="margin-bottom:6px;">Revisar reajuste — Plano {{ plano_nome }}</h1>
+    <p class="hint" style="margin-bottom:14px;">{{ ciclo }}</p>
+
+    <div class="depara">
+        <div class="box">
+            <div class="rotulo">Valor atual</div>
+            <div class="valor">{{ valor_antigo }}</div>
+        </div>
+        <div class="seta">➜</div>
+        <div class="box">
+            <div class="rotulo">Novo valor</div>
+            <div class="valor novo">{{ valor_novo }}</div>
+        </div>
+    </div>
+
+    <div class="aviso">
+        ⚠️ Ao confirmar, <b>{{ n_com_asaas }}</b> assinatura(s) serão reajustadas <b>na Asaas</b>
+        (as cobranças em aberto também são ajustadas). Essa ação cobra o novo valor dos clientes.
+        Confira a lista abaixo antes de continuar.
+    </div>
+
+    <div class="card" style="padding:8px;">
+        {% if afetadas %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Cliente</th>
+                    <th>Valor atual</th>
+                    <th>Status</th>
+                    <th>Na Asaas?</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for x in afetadas %}
+                <tr>
+                    <td>{{ x.nome }}<div class="cli-email">{{ x.email }}</div></td>
+                    <td>{{ x.valor_atual }}</td>
+                    <td><span class="badge {{ x.status_css }}">{{ x.status_label }}</span></td>
+                    <td>
+                        {% if x.tem_sub %}<span class="badge b-green">Sim</span>
+                        {% else %}<span class="badge b-muted">Só local</span>{% endif %}
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="hint" style="padding:18px;">
+            Nenhuma assinatura atual neste plano. O reajuste vai apenas atualizar o valor do plano
+            para <b>novos</b> assinantes.
+        </p>
+        {% endif %}
+    </div>
+
+    <div class="acoes">
+        <form method="post" action="/admin/planos/{{ codigo }}/aplicar"
+              onsubmit="return confirm('Confirmar o reajuste do plano {{ plano_nome }} para {{ valor_novo }}? Isso cobra o novo valor dos clientes.');">
+            <input type="hidden" name="novo_valor" value="{{ novo_valor_raw }}">
+            <button type="submit" class="btn btn-primary">✅ Confirmar reajuste</button>
+        </form>
+        <a href="/admin/planos" class="btn btn-light">Cancelar</a>
+    </div>
+</div>
+{% endblock %}

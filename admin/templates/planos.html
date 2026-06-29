@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block title %}AGRIVIA · Planos{% endblock %}
+
+{% block head_extra %}
+<style>
+    .flash{padding:12px 14px;border-radius:10px;font-size:14px;margin-bottom:16px;}
+    .flash-ok{background:rgba(122,163,63,0.14);border:1px solid rgba(122,163,63,0.4);color:var(--green-light);}
+    .flash-erro{background:rgba(192,57,43,0.14);border:1px solid rgba(192,57,43,0.4);color:var(--danger-light);}
+
+    .planos{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;}
+    @media (max-width:820px){.planos{grid-template-columns:1fr;}}
+
+    .plano-card{display:flex;flex-direction:column;gap:6px;}
+    .plano-nome{font-size:18px;font-weight:800;}
+    .plano-ciclo{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;}
+    .plano-valor{font-size:30px;font-weight:800;color:var(--green-light);margin:6px 0;}
+    .plano-info{font-size:13px;color:var(--muted);margin-bottom:6px;}
+    .plano-card form{margin:0;}
+    .plano-card label{margin-top:8px;}
+</style>
+{% endblock %}
+
+{% block topbar_right %}
+<div style="display:flex;gap:10px;">
+    <a href="/admin/usuarios" class="btn btn-light">👥 Usuários</a>
+    <a href="/admin/assinaturas" class="btn btn-light">💳 Assinaturas</a>
+    <a href="/admin/logout" class="btn btn-light">Sair</a>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="page" style="max-width:1000px;">
+
+    {% if ok %}<div class="flash flash-ok">✅ {{ ok }}</div>{% endif %}
+    {% if erro %}<div class="flash flash-erro">⚠️ {{ erro }}</div>{% endif %}
+
+    <h1 class="page-title" style="margin-bottom:6px;">Planos e reajuste</h1>
+    <p class="hint" style="margin-bottom:20px;">
+        Mude o valor de um plano e, ao confirmar, ele é <b>reajustado em todas as assinaturas atuais</b>
+        daquele plano na Asaas (vale para as próximas cobranças e ajusta as cobranças em aberto).
+        O valor do plano também passa a valer para <b>novos</b> assinantes.
+    </p>
+
+    <div class="planos">
+        {% for l in linhas %}
+        <div class="card plano-card">
+            <span class="plano-nome">{{ l.nome }}</span>
+            <span class="plano-ciclo">{{ l.ciclo }}</span>
+            <span class="plano-valor">{{ l.valor }}</span>
+            <span class="plano-info">
+                {{ l.total }} assinatura(s) seriam afetadas
+                {% if l.total %}· {{ l.com_asaas }} na Asaas{% endif %}
+            </span>
+            <form method="post" action="/admin/planos/{{ l.codigo }}/revisar">
+                <label>Novo valor</label>
+                <input type="text" name="novo_valor" inputmode="decimal" placeholder="Ex.: 200,00" required>
+                <button type="submit" class="btn btn-primary" style="margin-top:12px;width:100%;">Revisar reajuste</button>
+            </form>
+        </div>
+        {% else %}
+        <p class="hint">Nenhum plano cadastrado.</p>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

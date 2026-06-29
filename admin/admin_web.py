@@ -965,3 +965,116 @@ def assinatura_gerar_link(
         email_status = "ok" if enviado else "falhou"
 
     return _voltar_detalhe(user_id, extra=f"gerou={token}&email={email_status}")
+
+
+# ===============================================================
+# PLANOS + REAJUSTE EM MASSA (FASE 5)
+# ---------------------------------------------------------------
+# Edita o valor de um plano e propaga para TODAS as assinaturas
+# atuais daquele plano na Asaas. Fluxo em 3 passos por segurança:
+# listar -> revisar (confirmação com impacto) -> aplicar (relatório).
+# ===============================================================
+@router.get("/planos", response_class=HTMLResponse)
+def listar_planos(
+    request: Request,
+    ok: str = "",
+    erro: str = "",
+    db: Session = Depends(get_db),
+):
+    if not request.session.get("admin_id"):
+        return RedirectResponse("/admin/login", status_code=302)
+
+    planos = db.query(Plano).order_by(Plano.valor.asc()).all()
+    linhas = []
+    for p in planos:
+        alvos = assinatura_service.assinaturas_atuais_do_plano(db, p.codigo)
+        com_asaas = sum(1 for a in alvos if a.asaas_subscription_id)
+        linhas.append({
+            "codigo": p.codigo,
+            "nome": p.nome,
+            "ciclo": _CICLO_LABEL.get(p.ciclo, p.ciclo),
+            "valor": _fmt_money(p.valor),
+            "total": len(alvos),
+            "com_asaas": com_asaas,
+        })
+
+    return templates.TemplateResponse(
+        request,
+        "planos.html",
+        {"linhas": linhas, "ok": ok or "", "erro": erro or ""},
+    )
+
+
+@router.post("/planos/{codigo}/revisar", response_class=HTMLResponse)
+def revisar_reajuste(
+    codigo: str,
+    request: Request,
+    novo_valor: str = Form(...),
+    admin: Usuario = Depends(admin_session_required),
+    db: Session = Depends(get_db),
+):
+    plano = db.query(Plano).filter(Plano.codigo == codigo).first()
+    if not plano:
+        raise HTTPException(status_code=404, detail="Plano não encontrado")
+
+    try:
+        valor = assinatura_service.parse_valor(novo_valor)
+    except ValueError as e:
+        return RedirectResponse(f"/admin/planos?erro={quote(str(e))}", status_code=302)
+
+    alvos = assinatura_service.assinaturas_atuais_do_plano(db, codigo)
+    user_ids = [a.user_id for a in alvos]
+    usuarios = {}
+    if user_ids:
+        usuarios = {u.id: u for u in db.query(Usuario).filter(Usuario.id.in_(user_ids)).all()}
+
+    afetadas = []
+    for a in alvos:
+        u = usuarios.get(a.user_id)
+        status_label, status_css = _status_view(a)
+        afetadas.append({
+            "nome": (u.nome if u else f"usuário #{a.user_id}"),
+            "email": (u.email if u else ""),
+            "valor_atual": _fmt_money(a.valor),
+            "status_label": status_label,
+            "status_css": status_css,
+            "tem_sub": bool(a.asaas_subscription_id),
+        })
+
+    return templates.TemplateResponse(
+        request,
+        "planos_revisar.html",
+        {
+            "codigo": codigo,
+            "plano_nome": plano.nome,
+            "ciclo": _CICLO_LABEL.get(plano.ciclo, plano.ciclo),
+            "valor_antigo": _fmt_money(plano.valor),
+            "valor_novo": _fmt_money(valor),
+            "novo_valor_raw": novo_valor,
+            "afetadas": afetadas,
+            "n_com_asaas": sum(1 for x in afetadas if x["tem_sub"]),
+        },
+    )
+
+
+@router.post("/planos/{codigo}/aplicar", response_class=HTMLResponse)
+def aplicar_reajuste(
+    codigo: str,
+    request: Request,
+    novo_valor: str = Form(...),
+    admin: Usuario = Depends(admin_session_required),
+    db: Session = Depends(get_db),
+):
+    try:
+        rel = assinatura_service.reajustar_plano(db, codigo, novo_valor)
+    except (ValueError, AsaasError) as e:
+        return RedirectResponse(f"/admin/planos?erro={quote(str(e))}", status_code=302)
+
+    rel["valor_antigo_fmt"] = _fmt_money(rel.get("valor_antigo"))
+    rel["valor_novo_fmt"] = _fmt_money(rel.get("valor_novo"))
+
+    return templates.TemplateResponse(
+        request,
+        "planos_resultado.html",
+        {"rel": rel},
+    )
