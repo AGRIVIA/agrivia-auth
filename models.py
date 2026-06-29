@@ -1,5 +1,5 @@
 # models.py
-from sqlalchemy import Column, Integer, String, DateTime, Date, LargeBinary, ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime, Date, LargeBinary, ForeignKey, Float
 from datetime import datetime
 from database import Base
 
@@ -85,3 +85,75 @@ class AceiteTermos(Base):
     aceito_em = Column(DateTime, default=datetime.utcnow)
     ip = Column(String, nullable=True)
     user_agent = Column(String, nullable=True)
+
+
+# ===============================================================
+# ASSINATURAS (Asaas) — PLANO
+# ---------------------------------------------------------------
+# Valor de cada plano. Editável pelo painel admin; o reajuste
+# propaga para a Asaas (PUT /subscriptions). Ciclo = MONTHLY /
+# SEMIANNUALLY / YEARLY.
+# ===============================================================
+class Plano(Base):
+    __tablename__ = "planos"
+
+    id = Column(Integer, primary_key=True, index=True)
+    codigo = Column(String, unique=True, index=True)   # mensal / semestral / anual
+    nome = Column(String)
+    ciclo = Column(String)                             # MONTHLY / SEMIANNUALLY / YEARLY
+    valor = Column(Float)
+    ativo = Column(Integer, default=1)
+    atualizado_em = Column(DateTime, default=datetime.utcnow)
+
+
+# ===============================================================
+# ASSINATURAS (Asaas) — ASSINATURA DO CLIENTE
+# ---------------------------------------------------------------
+# Guarda SÓ o token + os IDs da Asaas (NUNCA o cartão).
+#   status   = situação automática vinda da Asaas/webhook
+#   controle = override manual do admin:
+#              automatico | liberado_manual | bloqueado_manual
+# ===============================================================
+class Assinatura(Base):
+    __tablename__ = "assinaturas"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("usuarios.id"), index=True, nullable=False)
+
+    asaas_customer_id = Column(String, index=True, nullable=True)
+    asaas_subscription_id = Column(String, index=True, nullable=True)
+    credit_card_token = Column(String, nullable=True)   # SÓ o token
+
+    plano = Column(String, nullable=True)               # mensal / semestral / anual
+    ciclo = Column(String, nullable=True)
+    valor = Column(Float, nullable=True)
+
+    status = Column(String, default="pending_payment")  # trial/active/pending_payment/overdue/cancelled/suspended
+    controle = Column(String, default="automatico")     # automatico | liberado_manual | bloqueado_manual
+    controle_ate = Column(DateTime, nullable=True)       # p/ liberação manual com prazo (teste de negociação)
+
+    proximo_vencimento = Column(DateTime, nullable=True)
+    ultimo_pagamento_status = Column(String, nullable=True)
+    last_sync = Column(DateTime, nullable=True)
+
+    criado_em = Column(DateTime, default=datetime.utcnow)
+    atualizado_em = Column(DateTime, nullable=True)
+    cancelado_em = Column(DateTime, nullable=True)
+
+
+# ===============================================================
+# ASSINATURAS (Asaas) — EVENTOS / WEBHOOK (idempotência + histórico)
+# ---------------------------------------------------------------
+# Cada webhook recebido vira uma linha. asaas_event_id evita
+# processar o mesmo evento duas vezes. payload guardado SANITIZADO.
+# ===============================================================
+class AsaasEvento(Base):
+    __tablename__ = "asaas_eventos"
+
+    id = Column(Integer, primary_key=True, index=True)
+    asaas_event_id = Column(String, index=True, nullable=True)  # idempotência
+    tipo = Column(String, nullable=True)                        # PAYMENT_CONFIRMED, etc.
+    assinatura_id = Column(Integer, nullable=True)
+    payload = Column(String, nullable=True)                     # JSON sanitizado (sem cartão)
+    processado = Column(Integer, default=0)
+    recebido_em = Column(DateTime, default=datetime.utcnow)

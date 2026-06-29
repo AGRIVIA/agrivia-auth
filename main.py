@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 
 from fastapi import FastAPI, Depends, HTTPException, Request, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy import inspect, text
@@ -18,9 +18,12 @@ from admin.admin_routes import router as admin_router
 from sync_routes import router as sync_router
 
 from database import SessionLocal, engine
-from models import Base, Usuario, AceiteTermos
+from models import Base, Usuario, AceiteTermos, Plano, Assinatura
 from auth import verify_password, create_access_token, hash_password
 from termos_config import TERMOS_URL, POLITICA_URL, TERMOS_VERSAO, POLITICA_VERSAO
+from planos_config import PLANOS_PADRAO
+from asaas.asaas_client import AsaasError
+import assinatura_service
 
 
 # Endereço público do servidor (usado no link de confirmação de e-mail).
@@ -195,9 +198,26 @@ def seed_inicial():
         db.close()
 
 
-# Ordem importa: cria tabela -> adiciona colunas/grandfather -> garante contas.
+def seed_planos():
+    """Garante os planos padrão na 1ª vez (depois você edita os valores no painel)."""
+    db = SessionLocal()
+    try:
+        for codigo, p in PLANOS_PADRAO.items():
+            if not db.query(Plano).filter(Plano.codigo == codigo).first():
+                db.add(Plano(codigo=codigo, nome=p["nome"], ciclo=p["ciclo"], valor=p["valor"], ativo=1))
+        db.commit()
+        print("[seed] planos garantidos.")
+    except Exception as e:
+        db.rollback()
+        print("[seed] erro ao garantir planos:", e)
+    finally:
+        db.close()
+
+
+# Ordem importa: cria tabela -> adiciona colunas/grandfather -> garante contas -> planos.
 migrar_colunas_email()
 seed_inicial()
+seed_planos()
 
 # ===============================
 # ROUTERS
@@ -338,10 +358,9 @@ def confirmar_post(
             status_code=400
         )
 
-    # Ativa a conta + GRAVA A PROVA do aceite (trilha de auditoria).
+    # Grava a PROVA do aceite e confirma o e-mail. NÃO libera o acesso ainda —
+    # isso acontece após escolher o plano + cartão. MANTÉM o token p/ os próximos passos.
     user.email_verificado = 1
-    user.token_confirmacao = None
-    user.token_expira = None
     db.add(AceiteTermos(
         user_id=user.id,
         email=user.email,
@@ -352,8 +371,164 @@ def confirmar_post(
     ))
     db.commit()
 
+    # Segue para a escolha do plano (mantém o token na URL).
+    return RedirectResponse(url=f"/assinar?token={token}", status_code=303)
+
+
+# ===============================================================
+# ASSINATURA — ESCOLHER PLANO + CARTÃO (onboarding web)
+# ===============================================================
+def _validar_token_onboarding(db, token):
+    user = db.query(Usuario).filter(Usuario.token_confirmacao == token).first()
+    if not user:
+        return None
+    if user.token_expira and user.token_expira < datetime.utcnow():
+        return None
+    return user
+
+
+def _pagina_planos(token, planos):
+    opcoes = ""
+    for p in planos:
+        valor = f"R$ {float(p.valor or 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        periodo = {"MONTHLY": "/mês", "SEMIANNUALLY": "/semestre", "YEARLY": "/ano"}.get(p.ciclo, "")
+        opcoes += f'''
+      <label style="display:flex; align-items:center; gap:12px; background:#0c1826; border:1px solid #2b3a22; border-radius:10px; padding:16px; margin-bottom:12px; cursor:pointer;">
+        <input type="radio" name="plano" value="{p.codigo}" required style="width:18px; height:18px;">
+        <span style="flex:1;"><b style="font-size:16px;">{p.nome}</b></span>
+        <span style="color:#9fc35a; font-size:16px; font-weight:bold;">{valor}<span style="color:#8fa97a; font-size:13px; font-weight:normal;">{periodo}</span></span>
+      </label>'''
+    return f"""<!doctype html>
+<html lang="pt-br"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Escolha o plano - AGRIVIA</title></head>
+<body style="font-family: Arial, sans-serif; background:#0c1826; color:#eaf2e2; margin:0; display:flex; min-height:100vh; align-items:center; justify-content:center; padding:20px;">
+  <div style="background:#0b1320; border:1px solid #476126; border-radius:14px; padding:36px; max-width:520px; width:100%;">
+    <h1 style="color:#7aa33f; font-size:22px; margin-top:0;">Escolha seu plano</h1>
+    <p style="font-size:15px; line-height:1.5;">Você informa o cartão uma vez e a renovação é automática no mesmo cartão.</p>
+    <form method="post" action="/assinar">
+      <input type="hidden" name="token" value="{token}">
+      {opcoes}
+      <button type="submit" style="margin-top:18px; width:100%; background:#476126; color:#fff; border:none; border-radius:8px; padding:13px; font-size:15px; font-weight:bold; cursor:pointer;">Continuar</button>
+    </form>
+  </div>
+</body></html>"""
+
+
+def _pagina_cartao(token, erro=None):
+    erro_html = ""
+    if erro:
+        erro_html = ('<p style="background:rgba(192,57,43,0.15); border:1px solid #c0392b; color:#e7897d; '
+                     'padding:10px 12px; border-radius:8px; font-size:14px;">' + erro + '</p>')
+    inp = ("width:100%; padding:11px 12px; margin:4px 0 12px; border-radius:8px; border:1px solid #2b3a22; "
+           "background:#0c1826; color:#eaf2e2; font-size:14px; box-sizing:border-box;")
+    lbl = "font-size:13px; color:#8fa97a;"
+    return f"""<!doctype html>
+<html lang="pt-br"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pagamento - AGRIVIA</title></head>
+<body style="font-family: Arial, sans-serif; background:#0c1826; color:#eaf2e2; margin:0; display:flex; min-height:100vh; align-items:center; justify-content:center; padding:20px;">
+  <div style="background:#0b1320; border:1px solid #476126; border-radius:14px; padding:36px; max-width:520px; width:100%;">
+    <h1 style="color:#7aa33f; font-size:22px; margin-top:0;">Dados do cartão</h1>
+    <p style="font-size:13px; line-height:1.5; color:#8fa97a;">🔒 O cartão é usado só para criar a assinatura e <b>não é armazenado</b> — guardamos apenas um código (token) protegido.</p>
+    {erro_html}
+    <form method="post" action="/assinar/cartao">
+      <input type="hidden" name="token" value="{token}">
+      <label style="{lbl}">Nome do titular (como está no cartão)</label>
+      <input name="titular_nome" required style="{inp}">
+      <label style="{lbl}">CPF do titular (só números)</label>
+      <input name="cpf" required inputmode="numeric" style="{inp}">
+      <label style="{lbl}">Telefone com DDD (ex: 4733334444)</label>
+      <input name="telefone" required inputmode="numeric" style="{inp}">
+      <div style="display:flex; gap:10px;">
+        <div style="flex:2;"><label style="{lbl}">CEP</label><input name="cep" required inputmode="numeric" style="{inp}"></div>
+        <div style="flex:1;"><label style="{lbl}">Nº</label><input name="numero" required style="{inp}"></div>
+      </div>
+      <hr style="border:none; border-top:1px solid #2b3a22; margin:6px 0 14px;">
+      <label style="{lbl}">Número do cartão</label>
+      <input name="numero_cartao" required inputmode="numeric" style="{inp}">
+      <div style="display:flex; gap:10px;">
+        <div style="flex:1;"><label style="{lbl}">Mês (MM)</label><input name="validade_mes" required maxlength="2" placeholder="12" style="{inp}"></div>
+        <div style="flex:1;"><label style="{lbl}">Ano (AAAA)</label><input name="validade_ano" required maxlength="4" placeholder="2028" style="{inp}"></div>
+        <div style="flex:1;"><label style="{lbl}">CVV</label><input name="cvv" required maxlength="4" style="{inp}"></div>
+      </div>
+      <button type="submit" style="margin-top:14px; width:100%; background:#476126; color:#fff; border:none; border-radius:8px; padding:13px; font-size:15px; font-weight:bold; cursor:pointer;">Assinar e liberar acesso</button>
+    </form>
+  </div>
+</body></html>"""
+
+
+@app.get("/assinar", response_class=HTMLResponse)
+def assinar_get(token: str, db: Session = Depends(get_db)):
+    user = _validar_token_onboarding(db, token)
+    if not user:
+        return HTMLResponse(_pagina_html("Link inválido", "Link inválido ou expirado. Fale com o suporte."), status_code=400)
+    return HTMLResponse(_pagina_planos(token, assinatura_service.planos_ativos(db)))
+
+
+@app.post("/assinar", response_class=HTMLResponse)
+def assinar_post(token: str = Form(...), plano: str = Form(...), db: Session = Depends(get_db)):
+    user = _validar_token_onboarding(db, token)
+    if not user:
+        return HTMLResponse(_pagina_html("Link inválido", "Link inválido ou expirado. Fale com o suporte."), status_code=400)
+    try:
+        assinatura_service.definir_plano(db, user, plano)
+    except ValueError:
+        return HTMLResponse(_pagina_planos(token, assinatura_service.planos_ativos(db)), status_code=400)
+    return RedirectResponse(url=f"/assinar/cartao?token={token}", status_code=303)
+
+
+@app.get("/assinar/cartao", response_class=HTMLResponse)
+def cartao_get(token: str, db: Session = Depends(get_db)):
+    user = _validar_token_onboarding(db, token)
+    if not user:
+        return HTMLResponse(_pagina_html("Link inválido", "Link inválido ou expirado. Fale com o suporte."), status_code=400)
+    return HTMLResponse(_pagina_cartao(token))
+
+
+@app.post("/assinar/cartao", response_class=HTMLResponse)
+def cartao_post(
+    request: Request,
+    token: str = Form(...),
+    titular_nome: str = Form(...),
+    cpf: str = Form(...),
+    telefone: str = Form(...),
+    cep: str = Form(...),
+    numero: str = Form(...),
+    numero_cartao: str = Form(...),
+    validade_mes: str = Form(...),
+    validade_ano: str = Form(...),
+    cvv: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    user = _validar_token_onboarding(db, token)
+    if not user:
+        return HTMLResponse(_pagina_html("Link inválido", "Link inválido ou expirado. Fale com o suporte."), status_code=400)
+
+    # Cartão SÓ em memória — passado pro serviço, tokenizado e descartado.
+    cartao = {
+        "holderName": titular_nome.strip(),
+        "number": numero_cartao.replace(" ", "").strip(),
+        "expiryMonth": validade_mes.strip(),
+        "expiryYear": validade_ano.strip(),
+        "ccv": cvv.strip(),
+    }
+    titular = {
+        "name": titular_nome.strip(),
+        "email": user.email,
+        "cpfCnpj": "".join(c for c in cpf if c.isdigit()),
+        "postalCode": "".join(c for c in cep if c.isdigit()),
+        "addressNumber": numero.strip(),
+        "phone": "".join(c for c in telefone if c.isdigit()),
+    }
+
+    try:
+        assinatura_service.criar_assinatura_completa(db, user, cartao, titular, _client_ip(request))
+    except (AsaasError, ValueError) as e:
+        return HTMLResponse(_pagina_cartao(token, erro=str(e)), status_code=400)
+    except Exception:
+        return HTMLResponse(_pagina_cartao(token, erro="Não foi possível processar o pagamento agora. Tente novamente."), status_code=500)
+
     return HTMLResponse(
-        _pagina_html("Conta ativada!", "Pronto! Você aceitou os termos e sua conta foi ativada. Já pode entrar no AGRIVIA.")
+        _pagina_html("Assinatura ativa! 🎉", "Pagamento aprovado e assinatura criada. Sua conta está liberada — já pode entrar no AGRIVIA.")
     )
 
 
