@@ -127,6 +127,7 @@ class Assinatura(Base):
     plano = Column(String, nullable=True)               # mensal / semestral / anual
     ciclo = Column(String, nullable=True)
     valor = Column(Float, nullable=True)
+    valor_travado = Column(Integer, default=0)          # 1 = pular no reajuste em massa (promoção/preço combinado)
 
     status = Column(String, default="pending_payment")  # trial/active/pending_payment/overdue/cancelled/suspended
     controle = Column(String, default="automatico")     # automatico | liberado_manual | bloqueado_manual

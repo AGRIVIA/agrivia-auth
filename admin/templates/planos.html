@@ -49,8 +49,9 @@
             <span class="plano-ciclo">{{ l.ciclo }}</span>
             <span class="plano-valor">{{ l.valor }}</span>
             <span class="plano-info">
-                {{ l.total }} assinatura(s) seriam afetadas
+                {{ l.total }} assinatura(s) seriam reajustadas
                 {% if l.total %}· {{ l.com_asaas }} na Asaas{% endif %}
+                {% if l.travadas %}· 🔒 {{ l.travadas }} travada(s) mantida(s){% endif %}
             </span>
             <form method="post" action="/admin/planos/{{ l.codigo }}/revisar">
                 <label>Novo valor</label>

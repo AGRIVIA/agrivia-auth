@@ -761,6 +761,7 @@ def listar_assinaturas(
             "customer_id": (a.asaas_customer_id if a and a.asaas_customer_id else "—"),
             "subscription_id": (a.asaas_subscription_id if a and a.asaas_subscription_id else "—"),
             "tem_sub": tem_sub,
+            "travado": bool(a and a.valor_travado),
         })
 
     return templates.TemplateResponse(
@@ -831,6 +832,7 @@ def detalhe_assinatura(
         "atualizado_em": _fmt_dt_br(a.atualizado_em) if (a and a.atualizado_em) else "—",
         "cancelado_em": _fmt_dt_br(a.cancelado_em) if (a and a.cancelado_em) else "—",
         "tem_sub": bool(a and a.asaas_subscription_id),
+        "valor_travado": bool(a and a.valor_travado),
     }
 
     # Link de assinatura recém-gerado (para copiar / mandar no WhatsApp).
@@ -967,6 +969,21 @@ def assinatura_gerar_link(
     return _voltar_detalhe(user_id, extra=f"gerou={token}&email={email_status}")
 
 
+@router.post("/assinaturas/{user_id}/travar")
+def assinatura_travar(
+    user_id: int,
+    travado: str = Form(...),
+    admin: Usuario = Depends(admin_session_required),
+    db: Session = Depends(get_db),
+):
+    usuario = _user_ou_404(db, user_id)
+    a = assinatura_service.get_or_create_assinatura(db, usuario)
+    assinatura_service.definir_valor_travado(db, a, travado == "1")
+    if travado == "1":
+        return _voltar_detalhe(user_id, ok="Valor travado — este cliente será pulado no reajuste em massa.")
+    return _voltar_detalhe(user_id, ok="Valor destravado — este cliente volta a entrar no reajuste em massa.")
+
+
 # ===============================================================
 # PLANOS + REAJUSTE EM MASSA (FASE 5)
 # ---------------------------------------------------------------
@@ -988,14 +1005,17 @@ def listar_planos(
     linhas = []
     for p in planos:
         alvos = assinatura_service.assinaturas_atuais_do_plano(db, p.codigo)
-        com_asaas = sum(1 for a in alvos if a.asaas_subscription_id)
+        reajustaveis = [a for a in alvos if not a.valor_travado]
+        com_asaas = sum(1 for a in reajustaveis if a.asaas_subscription_id)
+        travadas = sum(1 for a in alvos if a.valor_travado)
         linhas.append({
             "codigo": p.codigo,
             "nome": p.nome,
             "ciclo": _CICLO_LABEL.get(p.ciclo, p.ciclo),
             "valor": _fmt_money(p.valor),
-            "total": len(alvos),
+            "total": len(reajustaveis),
             "com_asaas": com_asaas,
+            "travadas": travadas,
         })
 
     return templates.TemplateResponse(
@@ -1039,6 +1059,7 @@ def revisar_reajuste(
             "status_label": status_label,
             "status_css": status_css,
             "tem_sub": bool(a.asaas_subscription_id),
+            "travado": bool(a.valor_travado),
         })
 
     return templates.TemplateResponse(
@@ -1052,7 +1073,9 @@ def revisar_reajuste(
             "valor_novo": _fmt_money(valor),
             "novo_valor_raw": novo_valor,
             "afetadas": afetadas,
-            "n_com_asaas": sum(1 for x in afetadas if x["tem_sub"]),
+            "n_reajustar": sum(1 for x in afetadas if not x["travado"]),
+            "n_travadas": sum(1 for x in afetadas if x["travado"]),
+            "n_com_asaas": sum(1 for x in afetadas if x["tem_sub"] and not x["travado"]),
         },
     )
 

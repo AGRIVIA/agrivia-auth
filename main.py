@@ -106,6 +106,27 @@ def migrar_colunas_email():
 
 
 # ===============================================================
+# FASE 5 — MIGRAÇÃO: COLUNA 'valor_travado' EM 'assinaturas'
+# ---------------------------------------------------------------
+# Adiciona a coluna que marca o valor como TRAVADO (promoção): quando
+# 1, o reajuste em massa do plano PULA esse cliente. Em bancos novos a
+# coluna já nasce pelo create_all; aqui é só para bancos que já tinham
+# a tabela 'assinaturas' sem a coluna. Roda uma vez; idempotente.
+# ===============================================================
+def migrar_colunas_assinaturas():
+    insp = inspect(engine)
+    try:
+        existentes = [c["name"] for c in insp.get_columns("assinaturas")]
+    except Exception:
+        return  # tabela ainda não existe; o create_all já a cria com a coluna.
+
+    if "valor_travado" not in existentes:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE assinaturas ADD COLUMN valor_travado INTEGER DEFAULT 0"))
+            print("[migracao] coluna assinaturas.valor_travado criada.")
+
+
+# ===============================================================
 # PASSO 1.3 — CONTAS NO BANCO PRINCIPAL (Postgres)
 # ---------------------------------------------------------------
 # 1) Garante o ADMIN a partir de variáveis SECRETAS do Railway
@@ -217,6 +238,7 @@ def seed_planos():
 
 # Ordem importa: cria tabela -> adiciona colunas/grandfather -> garante contas -> planos.
 migrar_colunas_email()
+migrar_colunas_assinaturas()
 seed_inicial()
 seed_planos()
 

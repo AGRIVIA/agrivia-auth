@@ -48,8 +48,9 @@
     </div>
 
     <div class="aviso">
-        ⚠️ Ao confirmar, <b>{{ n_com_asaas }}</b> assinatura(s) serão reajustadas <b>na Asaas</b>
-        (as cobranças em aberto também são ajustadas). Essa ação cobra o novo valor dos clientes.
+        ⚠️ Ao confirmar, <b>{{ n_reajustar }}</b> assinatura(s) serão reajustadas
+        ({{ n_com_asaas }} na Asaas){% if n_travadas %} e <b>🔒 {{ n_travadas }}</b> travada(s) serão
+        <b>mantidas</b> no valor atual{% endif %}. Essa ação cobra o novo valor dos clientes.
         Confira a lista abaixo antes de continuar.
     </div>
 
@@ -62,6 +63,7 @@
                     <th>Valor atual</th>
                     <th>Status</th>
                     <th>Na Asaas?</th>
+                    <th>Reajuste</th>
                 </tr>
             </thead>
             <tbody>
@@ -73,6 +75,10 @@
                     <td>
                         {% if x.tem_sub %}<span class="badge b-green">Sim</span>
                         {% else %}<span class="badge b-muted">Só local</span>{% endif %}
+                    </td>
+                    <td>
+                        {% if x.travado %}<span class="badge b-amber">🔒 Mantido</span>
+                        {% else %}<span class="badge b-green">➜ {{ valor_novo }}</span>{% endif %}
                     </td>
                 </tr>
             {% endfor %}

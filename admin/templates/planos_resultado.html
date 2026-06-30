@@ -38,7 +38,8 @@
         para <b>{{ rel.valor_novo_fmt }}</b>.<br>
         ✅ {{ rel.ok|length }} atualizada(s) na Asaas
         · ⚠️ {{ rel.falha|length }} falha(s)
-        · 🟡 {{ rel.local|length }} só local (sem assinatura na Asaas).
+        · 🟡 {{ rel.local|length }} só local
+        · 🔒 {{ rel.travadas|length }} mantida(s) (valor travado).
     </div>
 
     {% if rel.falha %}
@@ -78,7 +79,18 @@
     </div>
     {% endif %}
 
-    {% if not rel.ok and not rel.falha and not rel.local %}
+    {% if rel.travadas %}
+    <div class="bloco">
+        <h3>🔒 Mantidos (valor travado) <span class="pill pill-local">{{ rel.travadas|length }}</span></h3>
+        <ul class="lista">
+            {% for x in rel.travadas %}
+            <li>{{ x.nome }} <span class="email">{{ x.email }}</span></li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+
+    {% if not rel.ok and not rel.falha and not rel.local and not rel.travadas %}
     <p class="hint">Nenhuma assinatura atual neste plano. O valor do plano foi atualizado para novos assinantes.</p>
     {% endif %}
 

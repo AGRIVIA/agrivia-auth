@@ -233,6 +233,15 @@ def definir_controle(db, assinatura, controle, dias=None):
     return assinatura
 
 
+def definir_valor_travado(db, assinatura, travado):
+    """Trava/destrava o valor da assinatura. Travado (1) = o reajuste em massa
+    do plano PULA este cliente (caso de promoção / preço combinado)."""
+    assinatura.valor_travado = 1 if travado else 0
+    assinatura.atualizado_em = datetime.utcnow()
+    db.commit()
+    return assinatura
+
+
 # Status da ASSINATURA na Asaas -> nosso status.
 _STATUS_SUB_PARA_LOCAL = {
     "ACTIVE": "active",
@@ -344,12 +353,17 @@ def reajustar_plano(db, codigo, novo_valor):
         }
 
     client = AsaasClient()
-    rel = {"ok": [], "falha": [], "local": []}
+    rel = {"ok": [], "falha": [], "local": [], "travadas": []}
 
     for a in alvos:
         u = usuarios.get(a.user_id)
         nome = u.nome if u else f"usuário #{a.user_id}"
         email = u.email if u else ""
+
+        # Valor TRAVADO (promoção): pula no reajuste em massa e mantém o valor atual.
+        if a.valor_travado:
+            rel["travadas"].append({"nome": nome, "email": email})
+            continue
 
         if a.asaas_subscription_id:
             try:
