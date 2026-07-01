@@ -969,6 +969,22 @@ def assinatura_gerar_link(
     return _voltar_detalhe(user_id, extra=f"gerou={token}&email={email_status}")
 
 
+@router.post("/assinaturas/{user_id}/desvincular")
+def assinatura_desvincular(
+    user_id: int,
+    admin: Usuario = Depends(admin_session_required),
+    db: Session = Depends(get_db),
+):
+    usuario = _user_ou_404(db, user_id)
+    n = assinatura_service.desvincular_asaas(db, user_id)
+    if not n:
+        return _voltar_detalhe(user_id, erro="Este cliente não tem assinatura para desvincular.")
+    return _voltar_detalhe(
+        user_id,
+        ok="Assinatura desvinculada da Asaas. O cliente mantém o acesso e pode assinar do zero.",
+    )
+
+
 @router.post("/assinaturas/{user_id}/travar")
 def assinatura_travar(
     user_id: int,

@@ -242,6 +242,28 @@ def definir_valor_travado(db, assinatura, travado):
     return assinatura
 
 
+def desvincular_asaas(db, user_id):
+    """Remove o(s) registro(s) local(is) de assinatura do usuário (e os eventos
+    ligados). NÃO chama a Asaas — só limpa o que está salvo AQUI. Usado para:
+      - limpar dados de TESTE do sandbox antes de ir para produção (os IDs/token
+        do sandbox não valem em produção);
+      - deixar um cliente assinar do ZERO.
+    O cliente volta a 'grandfathered' (acesso pelo status do usuário) até
+    assinar de novo, quando uma assinatura nova é criada. Devolve quantas
+    assinaturas foram removidas. ATENÇÃO: se houver assinatura ATIVA de verdade
+    na Asaas, cancele antes (senão a Asaas continua cobrando sem o painel saber)."""
+    assinaturas = db.query(Assinatura).filter(Assinatura.user_id == user_id).all()
+    ids = [a.id for a in assinaturas]
+    if ids:
+        db.query(AsaasEvento).filter(
+            AsaasEvento.assinatura_id.in_(ids)
+        ).delete(synchronize_session=False)
+    for a in assinaturas:
+        db.delete(a)
+    db.commit()
+    return len(assinaturas)
+
+
 # Status da ASSINATURA na Asaas -> nosso status.
 _STATUS_SUB_PARA_LOCAL = {
     "ACTIVE": "active",

@@ -115,6 +115,12 @@
                     <button class="btn btn-danger btn-sm" type="submit">✖ Cancelar assinatura</button>
                 </form>
                 {% endif %}
+                {% if assinatura %}
+                <form method="post" action="/admin/assinaturas/{{ usuario.id }}/desvincular" style="margin:0;"
+                      onsubmit="return confirm('Desvincular este cliente da Asaas? Apaga os IDs/token e o histórico de eventos salvos AQUI (NÃO cobra nem cancela na Asaas). O cliente mantém o acesso e pode assinar do zero. Use para limpar TESTES do sandbox. Se houver assinatura ATIVA de verdade, cancele antes.');">
+                    <button class="btn btn-light btn-sm" type="submit" title="Limpar o vínculo com a Asaas (testes do sandbox / recomeçar)">🔌 Desvincular da Asaas</button>
+                </form>
+                {% endif %}
             </div>
         </div>
 
