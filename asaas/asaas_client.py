@@ -83,7 +83,16 @@ class AsaasClient:
 
     # ---------------- CLIENTES ----------------
     def criar_cliente(self, nome, email, cpf_cnpj, telefone=None):
-        body = {"name": nome, "email": email, "cpfCnpj": cpf_cnpj}
+        # notificationDisabled=True: a Asaas NÃO manda nenhuma mensagem ao
+        # cliente (SMS/WhatsApp geram TAXA; quem fala com o cliente é o
+        # próprio AGRIVIA, por e-mail). Cobrança é automática no cartão,
+        # então o cliente não precisa de lembrete da Asaas.
+        body = {
+            "name": nome,
+            "email": email,
+            "cpfCnpj": cpf_cnpj,
+            "notificationDisabled": True,
+        }
         if telefone:
             body["mobilePhone"] = telefone
         return self._request("POST", "/customers", json=body)
