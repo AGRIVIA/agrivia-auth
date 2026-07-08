@@ -90,6 +90,13 @@ def criar_assinatura_completa(db, user, cartao, titular, remote_ip):
     acesso. O 'cartao' (dict) é descartado ao fim — nunca é salvo/logado.
     Levanta AsaasError/ValueError em caso de problema (mensagens seguras)."""
     a = get_or_create_assinatura(db, user)
+
+    # TRAVA ANTI-DUPLICAÇÃO: se já existe assinatura ATIVA na Asaas, devolve a
+    # existente e NÃO cria outra (evita cobrar o cliente em dobro por duplo
+    # clique / reenvio do formulário do cartão).
+    if a.asaas_subscription_id and a.status == "active":
+        return a
+
     if not a.plano:
         raise ValueError("Escolha um plano antes de informar o cartão.")
     plano = get_plano(db, a.plano)

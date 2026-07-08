@@ -280,6 +280,19 @@ def _pagina_html(titulo: str, mensagem: str) -> str:
 </body></html>"""
 
 
+def _pagina_link_usado() -> str:
+    """Página amigável para link já usado/inválido. Os links são de USO ÚNICO:
+    depois que o cliente conclui o fluxo, clicar de novo cai aqui — e isso é
+    normal, não é erro. A mensagem tranquiliza em vez de assustar."""
+    return _pagina_html(
+        "Este link já foi utilizado",
+        "Este link já foi usado ou não é mais válido.<br><br>"
+        "✅ <b>Se você acabou de concluir sua assinatura</b> (ou já ativou sua conta), "
+        "está tudo certo — é só abrir o AGRIVIA e entrar normalmente.<br><br>"
+        "Se você ainda não concluiu a ativação, peça um novo link ao suporte."
+    )
+
+
 # ===============================================================
 # HELPERS DO ACEITE
 # ===============================================================
@@ -345,7 +358,7 @@ def confirmar_get(token: str, db: Session = Depends(get_db)):
     user = db.query(Usuario).filter(Usuario.token_confirmacao == token).first()
     if not user:
         return HTMLResponse(
-            _pagina_html("Link inválido", "Este link não é válido. Fale com o suporte."),
+            _pagina_link_usado(),
             status_code=400
         )
     if user.token_expira and user.token_expira < datetime.utcnow():
@@ -366,7 +379,7 @@ def confirmar_post(
     user = db.query(Usuario).filter(Usuario.token_confirmacao == token).first()
     if not user:
         return HTMLResponse(
-            _pagina_html("Link inválido", "Este link não é válido. Fale com o suporte."),
+            _pagina_link_usado(),
             status_code=400
         )
     if user.token_expira and user.token_expira < datetime.utcnow():
@@ -417,6 +430,22 @@ def _validar_token_onboarding(db, token):
     return user
 
 
+def _assinatura_ja_ativa(db, user):
+    """True se o usuário JÁ tem assinatura ativa na Asaas. Trava anti-duplicação:
+    impede o fluxo de pagamento de rodar de novo (duplo clique / recarregar a
+    página) e criar uma SEGUNDA assinatura — que cobraria o cliente em dobro."""
+    a = assinatura_service.assinatura_do_usuario(db, user.id)
+    return bool(a and a.asaas_subscription_id and a.status == "active")
+
+
+def _pagina_ja_assinou() -> str:
+    return _pagina_html(
+        "Assinatura já ativa 🎉",
+        "Sua assinatura já está ativa e o acesso liberado — <b>não é preciso pagar de novo</b>.<br><br>"
+        "É só abrir o AGRIVIA e entrar normalmente. Qualquer dúvida, fale com o suporte."
+    )
+
+
 def _pagina_planos(token, planos):
     opcoes = ""
     for p in planos:
@@ -460,7 +489,8 @@ def _pagina_cartao(token, erro=None):
     <h1 style="color:#7aa33f; font-size:22px; margin-top:0;">Dados do cartão</h1>
     <p style="font-size:13px; line-height:1.5; color:#8fa97a;">🔒 O cartão é usado só para criar a assinatura e <b>não é armazenado</b> — guardamos apenas um código (token) protegido.</p>
     {erro_html}
-    <form method="post" action="/assinar/cartao">
+    <form method="post" action="/assinar/cartao"
+          onsubmit="var b=this.querySelector('button[type=submit]'); b.disabled=true; b.style.opacity='0.6'; b.innerText='Processando... aguarde (não feche a página)';">
       <input type="hidden" name="token" value="{token}">
       <label style="{lbl}">Nome do titular (como está no cartão)</label>
       <input name="titular_nome" required style="{inp}">
@@ -490,7 +520,9 @@ def _pagina_cartao(token, erro=None):
 def assinar_get(token: str, db: Session = Depends(get_db)):
     user = _validar_token_onboarding(db, token)
     if not user:
-        return HTMLResponse(_pagina_html("Link inválido", "Link inválido ou expirado. Fale com o suporte."), status_code=400)
+        return HTMLResponse(_pagina_link_usado(), status_code=400)
+    if _assinatura_ja_ativa(db, user):
+        return HTMLResponse(_pagina_ja_assinou())
     return HTMLResponse(_pagina_planos(token, assinatura_service.planos_ativos(db)))
 
 
@@ -498,7 +530,9 @@ def assinar_get(token: str, db: Session = Depends(get_db)):
 def assinar_post(token: str = Form(...), plano: str = Form(...), db: Session = Depends(get_db)):
     user = _validar_token_onboarding(db, token)
     if not user:
-        return HTMLResponse(_pagina_html("Link inválido", "Link inválido ou expirado. Fale com o suporte."), status_code=400)
+        return HTMLResponse(_pagina_link_usado(), status_code=400)
+    if _assinatura_ja_ativa(db, user):
+        return HTMLResponse(_pagina_ja_assinou())
     try:
         assinatura_service.definir_plano(db, user, plano)
     except ValueError:
@@ -510,7 +544,9 @@ def assinar_post(token: str = Form(...), plano: str = Form(...), db: Session = D
 def cartao_get(token: str, db: Session = Depends(get_db)):
     user = _validar_token_onboarding(db, token)
     if not user:
-        return HTMLResponse(_pagina_html("Link inválido", "Link inválido ou expirado. Fale com o suporte."), status_code=400)
+        return HTMLResponse(_pagina_link_usado(), status_code=400)
+    if _assinatura_ja_ativa(db, user):
+        return HTMLResponse(_pagina_ja_assinou())
     return HTMLResponse(_pagina_cartao(token))
 
 
@@ -531,7 +567,10 @@ def cartao_post(
 ):
     user = _validar_token_onboarding(db, token)
     if not user:
-        return HTMLResponse(_pagina_html("Link inválido", "Link inválido ou expirado. Fale com o suporte."), status_code=400)
+        return HTMLResponse(_pagina_link_usado(), status_code=400)
+    if _assinatura_ja_ativa(db, user):
+        # Já assinou (ex.: clicou de novo depois de concluir) -> NÃO cobra de novo.
+        return HTMLResponse(_pagina_ja_assinou())
 
     # Cartão SÓ em memória — passado pro serviço, tokenizado e descartado.
     cartao = {
@@ -619,7 +658,7 @@ def _validar_senhas(senha, senha2):
 def definir_senha_get(token: str, db: Session = Depends(get_db)):
     user = _validar_token_onboarding(db, token)
     if not user:
-        return HTMLResponse(_pagina_html("Link inválido", "Link inválido ou expirado. Fale com o suporte."), status_code=400)
+        return HTMLResponse(_pagina_link_usado(), status_code=400)
     return HTMLResponse(_pagina_senha(
         "/definir-senha", token,
         "Crie sua senha",
@@ -638,7 +677,7 @@ def definir_senha_post(
 ):
     user = _validar_token_onboarding(db, token)
     if not user:
-        return HTMLResponse(_pagina_html("Link inválido", "Link inválido ou expirado. Fale com o suporte."), status_code=400)
+        return HTMLResponse(_pagina_link_usado(), status_code=400)
 
     erro = _validar_senhas(senha, senha2)
     if erro:
@@ -664,7 +703,7 @@ def definir_senha_post(
 def nova_senha_get(token: str, db: Session = Depends(get_db)):
     user = _validar_token_onboarding(db, token)
     if not user:
-        return HTMLResponse(_pagina_html("Link inválido", "Link inválido ou expirado. Peça um novo ao suporte."), status_code=400)
+        return HTMLResponse(_pagina_link_usado(), status_code=400)
     return HTMLResponse(_pagina_senha(
         "/nova-senha", token,
         "Criar nova senha",
@@ -682,7 +721,7 @@ def nova_senha_post(
 ):
     user = _validar_token_onboarding(db, token)
     if not user:
-        return HTMLResponse(_pagina_html("Link inválido", "Link inválido ou expirado. Peça um novo ao suporte."), status_code=400)
+        return HTMLResponse(_pagina_link_usado(), status_code=400)
 
     erro = _validar_senhas(senha, senha2)
     if erro:

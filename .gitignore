@@ -9,3 +9,6 @@ venv/
 
 # Arquivos auxiliares de banco SQLite (NÃO ignorar o usuarios.db!)
 *.db-journal
+
+# NUNCA subir a chave da Asaas pro GitHub (arquivo temporário de conferência)
+chave_producao.txt
