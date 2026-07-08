@@ -179,7 +179,12 @@
 
                         <td>
                             <div class="row-actions">
-                                <a href="/admin/usuarios/{{ u.id }}/reset-senha" class="btn btn-light btn-sm" title="Resetar senha">🔑</a>
+                                <a href="/admin/usuarios/{{ u.id }}/reset-senha" class="btn btn-light btn-sm" title="Resetar senha manualmente (você digita a senha)">🔑</a>
+
+                                <form method="post" action="/admin/usuarios/{{ u.id }}/enviar-nova-senha"
+                                      onsubmit="return confirm('Enviar para {{ u.email }} um link para ele criar a própria senha? O link vale por 24 horas.');">
+                                    <button class="btn btn-light btn-sm" type="submit" title="Enviar link para o cliente criar a própria senha">✉️🔑</button>
+                                </form>
                                 <a href="/admin/usuarios/{{ u.id }}/vencimento" class="btn btn-light btn-sm" title="Editar vencimento">📅</a>
                                 <a href="/admin/usuarios/{{ u.id }}/aceites" class="btn btn-light btn-sm" title="Ver aceites dos termos">📄</a>
 

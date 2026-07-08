@@ -19,8 +19,12 @@
             <label>E-mail</label>
             <input name="email" type="email" required>
 
-            <label>Senha inicial</label>
-            <input name="senha" type="password" required>
+            <label>Senha inicial (opcional para clientes)</label>
+            <input name="senha" type="password">
+            <p class="hint" style="margin:6px 0 0;">
+                Deixe em branco para o <b>cliente criar a própria senha</b> no link de
+                confirmação. Para contas de <b>administrador</b> a senha é obrigatória.
+            </p>
 
             <label>Status</label>
             <select name="status">

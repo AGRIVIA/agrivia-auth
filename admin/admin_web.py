@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from database import SessionLocal
 from models import Usuario, DbSnapshot, DeviceAtividade, AceiteTermos, Plano, Assinatura, AsaasEvento
 from auth import verify_password, hash_password
-from email_service import enviar_confirmacao, enviar_link_assinatura
+from email_service import enviar_confirmacao, enviar_link_assinatura, enviar_link_nova_senha
 from termos_config import TERMOS_VERSAO, POLITICA_VERSAO
 from asaas.asaas_client import AsaasError
 import assinatura_service
@@ -475,7 +475,7 @@ def criar_usuario_action(
     request: Request,
     nome: str = Form(...),
     email: str = Form(...),
-    senha: str = Form(...),
+    senha: str = Form(""),
     status: str = Form(...),
     is_admin: str = Form(None),
     db: Session = Depends(get_db),
@@ -492,6 +492,21 @@ def criar_usuario_action(
         )
 
     eh_admin = 1 if is_admin else 0
+
+    # Senha: para ADMIN é obrigatória (admin não passa pelo onboarding).
+    # Para CLIENTE é opcional — em branco, o sistema gera uma provisória
+    # aleatória e o cliente define a própria senha no link de confirmação.
+    senha = (senha or "").strip()
+    if eh_admin and not senha:
+        return templates.TemplateResponse(
+            request,
+            "criar_usuario.html",
+            {
+                "error": "Para contas de administrador a senha é obrigatória."
+            }
+        )
+    if not senha:
+        senha = secrets.token_urlsafe(16)  # provisória; ninguém precisa conhecê-la
 
     novo = Usuario(
         nome=nome,
@@ -598,6 +613,59 @@ def reset_senha_action(
         url="/admin/usuarios",
         status_code=302
     )
+
+# -------------------------------------------------
+# ENVIAR LINK DE NOVA SENHA (o cliente define a dele)
+# -------------------------------------------------
+@router.post("/usuarios/{user_id}/enviar-nova-senha")
+def enviar_nova_senha_action(
+    user_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    admin: Usuario = Depends(admin_session_required)
+):
+    usuario = db.query(Usuario).filter(Usuario.id == user_id).first()
+    if not usuario:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+
+    # Gera um token de uso único (validade 24 horas) e monta o link.
+    token = secrets.token_urlsafe(32)
+    usuario.token_confirmacao = token
+    usuario.token_expira = datetime.utcnow() + timedelta(hours=24)
+    db.commit()
+
+    base = os.getenv("PUBLIC_BASE_URL", _BASE_PADRAO).rstrip("/")
+    link = f"{base}/nova-senha?token={token}"
+
+    enviado = enviar_link_nova_senha(usuario.email, usuario.nome, link)
+
+    if enviado:
+        msg_email = ('<p style="font-size:15px; line-height:1.5;">O <b>e-mail com o link foi enviado '
+                     f'automaticamente</b> para <b>{usuario.email}</b>.</p>')
+        titulo = "Link de nova senha enviado &#9989;"
+        cor_titulo = "#7aa33f"
+    else:
+        msg_email = ('<p style="font-size:15px; line-height:1.5;"><b>Não consegui enviar o e-mail agora.</b> '
+                     'Copie o link abaixo e mande para o cliente (WhatsApp, por exemplo).</p>')
+        titulo = "Link de nova senha gerado &#9888;&#65039;"
+        cor_titulo = "#e0a93f"
+
+    pagina = f"""<!doctype html>
+<html lang="pt-br"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nova senha - AGRIVIA</title></head>
+<body style="font-family: Arial, sans-serif; background:#0c1826; color:#eaf2e2; margin:0; display:flex; min-height:100vh; align-items:center; justify-content:center;">
+  <div style="background:#0b1320; border:1px solid #476126; border-radius:14px; padding:36px; max-width:560px;">
+    <h1 style="color:{cor_titulo}; font-size:22px; margin-top:0;">{titulo}</h1>
+    <p style="font-size:15px; line-height:1.5;">Cliente: <b>{usuario.email}</b></p>
+    {msg_email}
+    <p style="font-size:13px; line-height:1.5; color:#8fa97a;">O link vale por <b>24 horas</b> e só pode ser
+    usado <b>uma vez</b>. Se quiser mandar pelo WhatsApp, é este:</p>
+    <div style="background:#0c1826; border:1px solid #2b3a22; border-radius:8px; padding:14px; word-break:break-all; font-size:13px; color:#bcd49a;">{link}</div>
+    <p style="margin-top:24px;"><a href="/admin/usuarios" style="background:#476126; color:#fff; text-decoration:none; padding:10px 18px; border-radius:8px; font-size:14px;">Voltar para a lista</a></p>
+  </div>
+</body></html>"""
+    return HTMLResponse(pagina)
 
 # -------------------------
 # LOGOUT (ADMIN)

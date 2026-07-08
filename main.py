@@ -401,8 +401,8 @@ def confirmar_post(
     # Garante uma assinatura PENDENTE (o acesso fica bloqueado até pagar).
     assinatura_service.get_or_create_assinatura(db, user)
 
-    # Segue para a escolha do plano (mantém o token na URL).
-    return RedirectResponse(url=f"/assinar?token={token}", status_code=303)
+    # Segue para a criação da senha (mantém o token na URL).
+    return RedirectResponse(url=f"/definir-senha?token={token}", status_code=303)
 
 
 # ===============================================================
@@ -560,6 +560,151 @@ def cartao_post(
     return HTMLResponse(
         _pagina_html("Assinatura ativa! 🎉", "Pagamento aprovado e assinatura criada. Sua conta está liberada — já pode entrar no AGRIVIA.")
     )
+
+
+# ===============================================================
+# SENHA DEFINIDA PELO PRÓPRIO USUÁRIO
+# ---------------------------------------------------------------
+# Dois fluxos, mesmo formulário:
+#  1) /definir-senha  -> passo do ONBOARDING (após aceitar os termos,
+#     antes de escolher o plano). MANTÉM o token vivo p/ continuar.
+#  2) /nova-senha     -> link avulso "esqueci a senha" gerado pelo
+#     painel admin. Ao concluir, LIMPA o token (link de uso único).
+# A senha nunca aparece em log; só o hash (bcrypt) vai pro banco.
+# ===============================================================
+_SENHA_MIN = 8
+
+
+def _pagina_senha(action, token, titulo, subtitulo, botao, erro=None):
+    erro_html = ""
+    if erro:
+        erro_html = ('<p style="background:rgba(192,57,43,0.15); border:1px solid #c0392b; color:#e7897d; '
+                     'padding:10px 12px; border-radius:8px; font-size:14px;">' + erro + '</p>')
+    inp = ("width:100%; padding:11px 12px; margin:4px 0 12px; border-radius:8px; border:1px solid #2b3a22; "
+           "background:#0c1826; color:#eaf2e2; font-size:14px; box-sizing:border-box;")
+    lbl = "font-size:13px; color:#8fa97a;"
+    return f"""<!doctype html>
+<html lang="pt-br"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{titulo} - AGRIVIA</title></head>
+<body style="font-family: Arial, sans-serif; background:#0c1826; color:#eaf2e2; margin:0; display:flex; min-height:100vh; align-items:center; justify-content:center; padding:20px;">
+  <div style="background:#0b1320; border:1px solid #476126; border-radius:14px; padding:36px; max-width:520px; width:100%;">
+    <h1 style="color:#7aa33f; font-size:22px; margin-top:0;">{titulo}</h1>
+    <p style="font-size:15px; line-height:1.5;">{subtitulo}</p>
+    {erro_html}
+    <form method="post" action="{action}">
+      <input type="hidden" name="token" value="{token}">
+      <label style="{lbl}">Nova senha (mínimo {_SENHA_MIN} caracteres)</label>
+      <input name="senha" type="password" required minlength="{_SENHA_MIN}" style="{inp}">
+      <label style="{lbl}">Repita a nova senha</label>
+      <input name="senha2" type="password" required minlength="{_SENHA_MIN}" style="{inp}">
+      <button type="submit" style="margin-top:14px; width:100%; background:#476126; color:#fff; border:none; border-radius:8px; padding:13px; font-size:15px; font-weight:bold; cursor:pointer;">{botao}</button>
+    </form>
+  </div>
+</body></html>"""
+
+
+def _validar_senhas(senha, senha2):
+    """Devolve a mensagem de erro (ou None se estiver tudo certo)."""
+    senha = (senha or "").strip()
+    senha2 = (senha2 or "").strip()
+    if len(senha) < _SENHA_MIN:
+        return f"A senha precisa ter pelo menos {_SENHA_MIN} caracteres."
+    if senha != senha2:
+        return "As duas senhas não são iguais. Digite a mesma senha nos dois campos."
+    return None
+
+
+# ---------- 1) Passo do ONBOARDING ----------
+@app.get("/definir-senha", response_class=HTMLResponse)
+def definir_senha_get(token: str, db: Session = Depends(get_db)):
+    user = _validar_token_onboarding(db, token)
+    if not user:
+        return HTMLResponse(_pagina_html("Link inválido", "Link inválido ou expirado. Fale com o suporte."), status_code=400)
+    return HTMLResponse(_pagina_senha(
+        "/definir-senha", token,
+        "Crie sua senha",
+        f"Conta: <b>{user.email}</b><br>Esta será a senha para entrar no AGRIVIA. "
+        "Se você já usa o sistema e quer manter a senha atual, basta digitá-la de novo.",
+        "Salvar senha e continuar",
+    ))
+
+
+@app.post("/definir-senha", response_class=HTMLResponse)
+def definir_senha_post(
+    token: str = Form(...),
+    senha: str = Form(...),
+    senha2: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    user = _validar_token_onboarding(db, token)
+    if not user:
+        return HTMLResponse(_pagina_html("Link inválido", "Link inválido ou expirado. Fale com o suporte."), status_code=400)
+
+    erro = _validar_senhas(senha, senha2)
+    if erro:
+        return HTMLResponse(_pagina_senha(
+            "/definir-senha", token,
+            "Crie sua senha",
+            f"Conta: <b>{user.email}</b><br>Esta será a senha para entrar no AGRIVIA. "
+            "Se você já usa o sistema e quer manter a senha atual, basta digitá-la de novo.",
+            "Salvar senha e continuar",
+            erro=erro,
+        ), status_code=400)
+
+    user.senha_hash = hash_password(senha.strip())
+    user.atualizado_em = datetime.utcnow()
+    db.commit()
+
+    # Segue para a escolha do plano (MANTÉM o token vivo).
+    return RedirectResponse(url=f"/assinar?token={token}", status_code=303)
+
+
+# ---------- 2) Link avulso "ESQUECI A SENHA" (gerado pelo admin) ----------
+@app.get("/nova-senha", response_class=HTMLResponse)
+def nova_senha_get(token: str, db: Session = Depends(get_db)):
+    user = _validar_token_onboarding(db, token)
+    if not user:
+        return HTMLResponse(_pagina_html("Link inválido", "Link inválido ou expirado. Peça um novo ao suporte."), status_code=400)
+    return HTMLResponse(_pagina_senha(
+        "/nova-senha", token,
+        "Criar nova senha",
+        f"Conta: <b>{user.email}</b><br>Defina abaixo a sua nova senha de acesso ao AGRIVIA.",
+        "Salvar nova senha",
+    ))
+
+
+@app.post("/nova-senha", response_class=HTMLResponse)
+def nova_senha_post(
+    token: str = Form(...),
+    senha: str = Form(...),
+    senha2: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    user = _validar_token_onboarding(db, token)
+    if not user:
+        return HTMLResponse(_pagina_html("Link inválido", "Link inválido ou expirado. Peça um novo ao suporte."), status_code=400)
+
+    erro = _validar_senhas(senha, senha2)
+    if erro:
+        return HTMLResponse(_pagina_senha(
+            "/nova-senha", token,
+            "Criar nova senha",
+            f"Conta: <b>{user.email}</b><br>Defina abaixo a sua nova senha de acesso ao AGRIVIA.",
+            "Salvar nova senha",
+            erro=erro,
+        ), status_code=400)
+
+    user.senha_hash = hash_password(senha.strip())
+    # Link de uso ÚNICO: depois de trocar a senha, o token morre.
+    user.token_confirmacao = None
+    user.token_expira = None
+    user.atualizado_em = datetime.utcnow()
+    db.commit()
+
+    return HTMLResponse(_pagina_html(
+        "Senha alterada! ✅",
+        "Sua nova senha foi salva. Já pode entrar no AGRIVIA com ela."
+    ))
 
 
 # ===============================================================
