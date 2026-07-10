@@ -91,10 +91,10 @@ def criar_assinatura_completa(db, user, cartao, titular, remote_ip):
     Levanta AsaasError/ValueError em caso de problema (mensagens seguras)."""
     a = get_or_create_assinatura(db, user)
 
-    # TRAVA ANTI-DUPLICAÇÃO: se já existe assinatura ATIVA na Asaas, devolve a
-    # existente e NÃO cria outra (evita cobrar o cliente em dobro por duplo
-    # clique / reenvio do formulário do cartão).
-    if a.asaas_subscription_id and a.status == "active":
+    # TRAVA ANTI-DUPLICAÇÃO: se já existe assinatura ATIVA (ou em período
+    # grátis) na Asaas, devolve a existente e NÃO cria outra (evita cobrar o
+    # cliente em dobro por duplo clique / reenvio do formulário do cartão).
+    if a.asaas_subscription_id and a.status in ("active", "trial"):
         return a
 
     if not a.plano:
@@ -102,6 +102,13 @@ def criar_assinatura_completa(db, user, cartao, titular, remote_ip):
     plano = get_plano(db, a.plano)
     if not plano:
         raise ValueError("Plano não encontrado.")
+
+    # 🎁 PROMO "1º MÊS GRÁTIS": se o admin marcou trial_dias (30), a PRIMEIRA
+    # cobrança é agendada NA ASAAS para D+30 (nextDueDate futuro). O cartão é
+    # tokenizado hoje, nada é cobrado hoje, e a Asaas cobra sozinha na data.
+    # Sem promo (trial_dias=0), tudo continua EXATAMENTE como sempre: cobra hoje.
+    trial = int(a.trial_dias or 0)
+    primeira_cobranca = date.today() + timedelta(days=trial) if trial > 0 else date.today()
 
     client = AsaasClient()
 
@@ -130,13 +137,16 @@ def criar_assinatura_completa(db, user, cartao, titular, remote_ip):
         credit_card_token=token,
         valor=float(plano.valor),
         ciclo=plano.ciclo,
-        proximo_vencimento=date.today().isoformat(),
+        proximo_vencimento=primeira_cobranca.isoformat(),
         descricao=f"AGRIVIA - Plano {plano.nome}",
     )
 
     # 4) Salva os IDs e libera o acesso.
+    #    Com promo -> status "trial" (o login já libera trial); vira "active"
+    #    sozinho quando a Asaas confirmar o pagamento do D+30 (webhook).
     a.asaas_subscription_id = sub.get("id")
-    a.status = "active"
+    a.status = "trial" if trial > 0 else "active"
+    a.trial_dias = 0   # promo CONSUMIDA: não vale de novo numa futura reassinatura
     a.proximo_vencimento = _parse_date(sub.get("nextDueDate"))
     a.last_sync = datetime.utcnow()
     a.atualizado_em = datetime.utcnow()
@@ -249,6 +259,19 @@ def definir_valor_travado(db, assinatura, travado):
     return assinatura
 
 
+def definir_trial(db, assinatura, ligar):
+    """🎁 Liga/desliga o "1º mês grátis" (30 dias fixos) de um cliente que
+    AINDA NÃO assinou. Depois que a assinatura existe na Asaas, não se aplica
+    mais (a promo é consumida na criação). 30 é fixo de propósito — sem campo
+    livre, sem risco de digitar 300 por engano."""
+    if assinatura.asaas_subscription_id:
+        raise ValueError("Este cliente já assinou — a promoção não se aplica mais.")
+    assinatura.trial_dias = 30 if ligar else 0
+    assinatura.atualizado_em = datetime.utcnow()
+    db.commit()
+    return assinatura
+
+
 def desvincular_asaas(db, user_id):
     """Remove o(s) registro(s) local(is) de assinatura do usuário (e os eventos
     ligados). NÃO chama a Asaas — só limpa o que está salvo AQUI. Usado para:
@@ -327,6 +350,18 @@ def sincronizar(db, assinatura):
         mapeado = _STATUS_COBRANCA_PARA_LOCAL.get((ultima.get("status") or "").upper())
         if mapeado:
             novo_status = mapeado
+
+    # 🎁 Cliente no 1º mês grátis: a Asaas mostra a assinatura como ACTIVE desde
+    # o início, mas enquanto NENHUMA cobrança foi confirmada/paga o correto
+    # aqui é continuar "trial" (senão o Sincronizar mostraria "Ativa" antes
+    # de o cliente ter pago qualquer coisa).
+    if assinatura.status == "trial" and novo_status == "active":
+        pagou = any(
+            (c.get("status") or "").upper() in ("CONFIRMED", "RECEIVED", "RECEIVED_IN_CASH")
+            for c in lista
+        )
+        if not pagou:
+            novo_status = "trial"
 
     if novo_status:
         assinatura.status = novo_status

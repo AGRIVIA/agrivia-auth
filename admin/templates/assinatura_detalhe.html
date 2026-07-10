@@ -76,6 +76,7 @@
             <span class="badge {{ info.status_css }}">{{ info.status_label }}</span>
             <span class="badge {{ info.controle_css }}">{{ info.controle_label }}</span>
             {% if info.valor_travado %}<span class="badge b-amber">🔒 Valor travado</span>{% endif %}
+            {% if info.promo_pendente %}<span class="badge b-amber">🎁 30 dias grátis (pendente)</span>{% endif %}
         </div>
     </div>
 
@@ -88,6 +89,9 @@
                 <dt>Ciclo</dt><dd>{{ info.ciclo }}</dd>
                 <dt>Valor</dt><dd>{{ info.valor }}</dd>
                 <dt>Valor travado</dt><dd>{% if info.valor_travado %}🔒 Sim{% else %}Não{% endif %}</dd>
+                {% if info.promo_pendente %}
+                <dt>Promoção</dt><dd>🎁 30 dias grátis — vale quando assinar</dd>
+                {% endif %}
                 <dt>Status</dt><dd><span class="badge {{ info.status_css }}">{{ info.status_label }}</span></dd>
                 <dt>Controle</dt><dd><span class="badge {{ info.controle_css }}">{{ info.controle_label }}</span></dd>
                 {% if info.controle_ate and info.controle_ate != '—' %}
@@ -178,6 +182,30 @@
                     {% endif %}
                 </div>
             </div>
+
+            {% if not info.tem_sub %}
+            <!-- 🎁 1º mês grátis (só antes de assinar) -->
+            <div class="acao">
+                <h3>🎁 1º mês grátis</h3>
+                <p class="hint">Com a promoção, o cliente cadastra o cartão mas a <b>1ª cobrança
+                é só em D+30</b> (agendada na Asaas). Só vale ANTES de assinar.</p>
+                <div class="acao-row">
+                    {% if info.promo_pendente %}
+                    <form method="post" action="/admin/assinaturas/{{ usuario.id }}/trial">
+                        <input type="hidden" name="ligar" value="0">
+                        <button class="btn btn-light btn-sm" type="submit">Remover promoção</button>
+                    </form>
+                    <span class="hint" style="align-self:center;">Estado atual: 🎁 ligada</span>
+                    {% else %}
+                    <form method="post" action="/admin/assinaturas/{{ usuario.id }}/trial">
+                        <input type="hidden" name="ligar" value="1">
+                        <button class="btn btn-light btn-sm" type="submit">🎁 Dar 30 dias grátis</button>
+                    </form>
+                    <span class="hint" style="align-self:center;">Estado atual: sem promoção</span>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
         </div>
     </div>
 
@@ -227,10 +255,16 @@
                 <b>testes de negociação</b>. Você pode enviar por e-mail e/ou copiar para o WhatsApp.
             </p>
             <form method="post" action="/admin/assinaturas/{{ usuario.id }}/gerar-link">
-                <label style="display:flex;gap:10px;align-items:center;font-size:14px;cursor:pointer;margin:0 0 14px;">
+                <label style="display:flex;gap:10px;align-items:center;font-size:14px;cursor:pointer;margin:0 0 10px;">
                     <input type="checkbox" name="enviar_email" value="1" style="width:18px;height:18px;">
                     Enviar também por e-mail para {{ usuario.email }}
                 </label>
+                {% if not info.tem_sub %}
+                <label style="display:flex;gap:10px;align-items:center;font-size:14px;cursor:pointer;margin:0 0 14px;">
+                    <input type="checkbox" name="trial_30" value="1" {% if info.promo_pendente %}checked{% endif %} style="width:18px;height:18px;">
+                    🎁 30 dias grátis (1ª cobrança só em D+30)
+                </label>
+                {% endif %}
                 <button class="btn btn-primary btn-sm" type="submit">🔗 Gerar link</button>
             </form>
         </div>

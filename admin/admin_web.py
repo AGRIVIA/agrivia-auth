@@ -478,6 +478,7 @@ def criar_usuario_action(
     senha: str = Form(""),
     status: str = Form(...),
     is_admin: str = Form(None),
+    trial_30: str = Form(None),
     db: Session = Depends(get_db),
     admin: Usuario = Depends(admin_session_required)
 ):
@@ -530,6 +531,14 @@ def criar_usuario_action(
     novo.token_expira = datetime.utcnow() + timedelta(days=3)
     db.add(novo)
     db.commit()
+
+    # 🎁 Promoção "30 dias grátis" marcada no cadastro: grava na assinatura
+    # pendente do cliente. Quando ele concluir o fluxo (termos -> senha ->
+    # plano -> cartão), a 1ª cobrança é agendada p/ D+30 automaticamente.
+    if trial_30:
+        assinatura_service.definir_trial(
+            db, assinatura_service.get_or_create_assinatura(db, novo), True
+        )
 
     base = os.getenv("PUBLIC_BASE_URL", _BASE_PADRAO).rstrip("/")
     link = f"{base}/confirmar?token={token}"
@@ -830,6 +839,7 @@ def listar_assinaturas(
             "subscription_id": (a.asaas_subscription_id if a and a.asaas_subscription_id else "—"),
             "tem_sub": tem_sub,
             "travado": bool(a and a.valor_travado),
+            "promo": bool(a and (a.trial_dias or 0) > 0 and not tem_sub),
         })
 
     return templates.TemplateResponse(
@@ -901,6 +911,7 @@ def detalhe_assinatura(
         "cancelado_em": _fmt_dt_br(a.cancelado_em) if (a and a.cancelado_em) else "—",
         "tem_sub": bool(a and a.asaas_subscription_id),
         "valor_travado": bool(a and a.valor_travado),
+        "promo_pendente": bool(a and (a.trial_dias or 0) > 0 and not a.asaas_subscription_id),
     }
 
     # Link de assinatura recém-gerado (para copiar / mandar no WhatsApp).
@@ -1014,10 +1025,22 @@ def assinatura_gerar_link(
     user_id: int,
     request: Request,
     enviar_email: str = Form(None),
+    trial_30: str = Form(None),
     admin: Usuario = Depends(admin_session_required),
     db: Session = Depends(get_db),
 ):
     usuario = _user_ou_404(db, user_id)
+
+    # 🎁 Se marcou "30 dias grátis" ao gerar o link, LIGA a promoção no cliente.
+    # (Desmarcado NÃO desliga uma promo já dada — para tirar, use o botão
+    # próprio na tela do cliente. Evita apagar a promo sem querer.)
+    if trial_30:
+        try:
+            assinatura_service.definir_trial(
+                db, assinatura_service.get_or_create_assinatura(db, usuario), True
+            )
+        except ValueError as e:
+            return _voltar_detalhe(user_id, erro=str(e))
 
     # Gera um token de onboarding (validade 7 dias). O cliente cai no fluxo
     # /confirmar -> /assinar -> /assinar/cartao (reaproveita o que já existe).
@@ -1066,6 +1089,24 @@ def assinatura_travar(
     if travado == "1":
         return _voltar_detalhe(user_id, ok="Valor travado — este cliente será pulado no reajuste em massa.")
     return _voltar_detalhe(user_id, ok="Valor destravado — este cliente volta a entrar no reajuste em massa.")
+
+
+@router.post("/assinaturas/{user_id}/trial")
+def assinatura_definir_trial(
+    user_id: int,
+    ligar: str = Form(...),
+    admin: Usuario = Depends(admin_session_required),
+    db: Session = Depends(get_db),
+):
+    usuario = _user_ou_404(db, user_id)
+    a = assinatura_service.get_or_create_assinatura(db, usuario)
+    try:
+        assinatura_service.definir_trial(db, a, ligar == "1")
+    except ValueError as e:
+        return _voltar_detalhe(user_id, erro=str(e))
+    if ligar == "1":
+        return _voltar_detalhe(user_id, ok="🎁 30 dias grátis ligado — vale quando este cliente assinar.")
+    return _voltar_detalhe(user_id, ok="Promoção removida — este cliente pagará na hora, como o padrão.")
 
 
 # ===============================================================

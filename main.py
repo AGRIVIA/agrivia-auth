@@ -1,7 +1,7 @@
 import os
 import sqlite3
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 
 from fastapi import FastAPI, Depends, HTTPException, Request, Form
 from fastapi.middleware.cors import CORSMiddleware
@@ -106,24 +106,31 @@ def migrar_colunas_email():
 
 
 # ===============================================================
-# FASE 5 — MIGRAÇÃO: COLUNA 'valor_travado' EM 'assinaturas'
+# MIGRAÇÃO: COLUNAS NOVAS EM 'assinaturas'
 # ---------------------------------------------------------------
-# Adiciona a coluna que marca o valor como TRAVADO (promoção): quando
-# 1, o reajuste em massa do plano PULA esse cliente. Em bancos novos a
-# coluna já nasce pelo create_all; aqui é só para bancos que já tinham
-# a tabela 'assinaturas' sem a coluna. Roda uma vez; idempotente.
+#  - valor_travado (Fase 5): 1 = pular no reajuste em massa.
+#  - trial_dias (promo 🎁): 30 = 1ª cobrança só em D+30 (1º mês grátis).
+# Em bancos novos as colunas já nascem pelo create_all; aqui é só para
+# bancos que já tinham a tabela sem elas. Roda uma vez; idempotente.
 # ===============================================================
 def migrar_colunas_assinaturas():
     insp = inspect(engine)
     try:
         existentes = [c["name"] for c in insp.get_columns("assinaturas")]
     except Exception:
-        return  # tabela ainda não existe; o create_all já a cria com a coluna.
+        return  # tabela ainda não existe; o create_all já a cria completa.
 
+    novas = []
     if "valor_travado" not in existentes:
-        with engine.begin() as conn:
-            conn.execute(text("ALTER TABLE assinaturas ADD COLUMN valor_travado INTEGER DEFAULT 0"))
-            print("[migracao] coluna assinaturas.valor_travado criada.")
+        novas.append("ALTER TABLE assinaturas ADD COLUMN valor_travado INTEGER DEFAULT 0")
+    if "trial_dias" not in existentes:
+        novas.append("ALTER TABLE assinaturas ADD COLUMN trial_dias INTEGER DEFAULT 0")
+    if not novas:
+        return
+    with engine.begin() as conn:
+        for sql in novas:
+            conn.execute(text(sql))
+            print("[migracao]", sql)
 
 
 # ===============================================================
@@ -431,11 +438,33 @@ def _validar_token_onboarding(db, token):
 
 
 def _assinatura_ja_ativa(db, user):
-    """True se o usuário JÁ tem assinatura ativa na Asaas. Trava anti-duplicação:
-    impede o fluxo de pagamento de rodar de novo (duplo clique / recarregar a
-    página) e criar uma SEGUNDA assinatura — que cobraria o cliente em dobro."""
+    """True se o usuário JÁ tem assinatura ativa (ou em período grátis) na
+    Asaas. Trava anti-duplicação: impede o fluxo de pagamento de rodar de novo
+    (duplo clique / recarregar a página) e criar uma SEGUNDA assinatura — que
+    cobraria o cliente em dobro."""
     a = assinatura_service.assinatura_do_usuario(db, user.id)
-    return bool(a and a.asaas_subscription_id and a.status == "active")
+    return bool(a and a.asaas_subscription_id and a.status in ("active", "trial"))
+
+
+def _aviso_trial_html(db, user):
+    """🎁 Aviso de transparência do 1º mês grátis nas telas do onboarding.
+    Devolve "" para clientes sem promoção (telas ficam idênticas às de hoje)."""
+    a = assinatura_service.assinatura_do_usuario(db, user.id)
+    trial = int(a.trial_dias or 0) if a else 0
+    if trial <= 0:
+        return ""
+    data = (date.today() + timedelta(days=trial)).strftime("%d/%m/%Y")
+    valor = ""
+    if a and a.valor:
+        v = f"R$ {float(a.valor):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        valor = f" de <b>{v}</b>"
+    return (
+        '<p style="background:rgba(101,243,108,0.10); border:1px solid #476126; color:#bcd49a; '
+        'padding:12px 14px; border-radius:8px; font-size:14px; line-height:1.6;">'
+        f'🎁 <b>Você tem {trial} dias grátis!</b> Hoje você não paga nada — a primeira cobrança'
+        f'{valor} será em <b>{data}</b>, automaticamente no cartão cadastrado. '
+        'Se cancelar antes dessa data, nada será cobrado.</p>'
+    )
 
 
 def _pagina_ja_assinou() -> str:
@@ -446,7 +475,7 @@ def _pagina_ja_assinou() -> str:
     )
 
 
-def _pagina_planos(token, planos):
+def _pagina_planos(token, planos, aviso=""):
     opcoes = ""
     for p in planos:
         valor = f"R$ {float(p.valor or 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
@@ -464,6 +493,7 @@ def _pagina_planos(token, planos):
   <div style="background:#0b1320; border:1px solid #476126; border-radius:14px; padding:36px; max-width:520px; width:100%;">
     <h1 style="color:#7aa33f; font-size:22px; margin-top:0;">Escolha seu plano</h1>
     <p style="font-size:15px; line-height:1.5;">Você informa o cartão uma vez e a renovação é automática no mesmo cartão.</p>
+    {aviso}
     <form method="post" action="/assinar">
       <input type="hidden" name="token" value="{token}">
       {opcoes}
@@ -473,7 +503,7 @@ def _pagina_planos(token, planos):
 </body></html>"""
 
 
-def _pagina_cartao(token, erro=None):
+def _pagina_cartao(token, erro=None, aviso=""):
     erro_html = ""
     if erro:
         erro_html = ('<p style="background:rgba(192,57,43,0.15); border:1px solid #c0392b; color:#e7897d; '
@@ -488,6 +518,7 @@ def _pagina_cartao(token, erro=None):
   <div style="background:#0b1320; border:1px solid #476126; border-radius:14px; padding:36px; max-width:520px; width:100%;">
     <h1 style="color:#7aa33f; font-size:22px; margin-top:0;">Dados do cartão</h1>
     <p style="font-size:13px; line-height:1.5; color:#8fa97a;">🔒 O cartão é usado só para criar a assinatura e <b>não é armazenado</b> — guardamos apenas um código (token) protegido.</p>
+    {aviso}
     {erro_html}
     <form method="post" action="/assinar/cartao"
           onsubmit="var b=this.querySelector('button[type=submit]'); b.disabled=true; b.style.opacity='0.6'; b.innerText='Processando... aguarde (não feche a página)';">
@@ -523,7 +554,7 @@ def assinar_get(token: str, db: Session = Depends(get_db)):
         return HTMLResponse(_pagina_link_usado(), status_code=400)
     if _assinatura_ja_ativa(db, user):
         return HTMLResponse(_pagina_ja_assinou())
-    return HTMLResponse(_pagina_planos(token, assinatura_service.planos_ativos(db)))
+    return HTMLResponse(_pagina_planos(token, assinatura_service.planos_ativos(db), aviso=_aviso_trial_html(db, user)))
 
 
 @app.post("/assinar", response_class=HTMLResponse)
@@ -536,7 +567,7 @@ def assinar_post(token: str = Form(...), plano: str = Form(...), db: Session = D
     try:
         assinatura_service.definir_plano(db, user, plano)
     except ValueError:
-        return HTMLResponse(_pagina_planos(token, assinatura_service.planos_ativos(db)), status_code=400)
+        return HTMLResponse(_pagina_planos(token, assinatura_service.planos_ativos(db), aviso=_aviso_trial_html(db, user)), status_code=400)
     return RedirectResponse(url=f"/assinar/cartao?token={token}", status_code=303)
 
 
@@ -547,7 +578,7 @@ def cartao_get(token: str, db: Session = Depends(get_db)):
         return HTMLResponse(_pagina_link_usado(), status_code=400)
     if _assinatura_ja_ativa(db, user):
         return HTMLResponse(_pagina_ja_assinou())
-    return HTMLResponse(_pagina_cartao(token))
+    return HTMLResponse(_pagina_cartao(token, aviso=_aviso_trial_html(db, user)))
 
 
 @app.post("/assinar/cartao", response_class=HTMLResponse)
@@ -590,11 +621,24 @@ def cartao_post(
     }
 
     try:
-        assinatura_service.criar_assinatura_completa(db, user, cartao, titular, _client_ip(request))
+        a = assinatura_service.criar_assinatura_completa(db, user, cartao, titular, _client_ip(request))
     except (AsaasError, ValueError) as e:
-        return HTMLResponse(_pagina_cartao(token, erro=str(e)), status_code=400)
+        return HTMLResponse(_pagina_cartao(token, erro=str(e), aviso=_aviso_trial_html(db, user)), status_code=400)
     except Exception:
-        return HTMLResponse(_pagina_cartao(token, erro="Não foi possível processar o pagamento agora. Tente novamente."), status_code=500)
+        return HTMLResponse(_pagina_cartao(token, erro="Não foi possível processar o pagamento agora. Tente novamente.", aviso=_aviso_trial_html(db, user)), status_code=500)
+
+    # 🎁 Promo: nada foi cobrado hoje; mostra a data da 1ª cobrança (que veio da Asaas).
+    if a.status == "trial":
+        data = a.proximo_vencimento.strftime("%d/%m/%Y") if a.proximo_vencimento else "30 dias"
+        return HTMLResponse(
+            _pagina_html(
+                "Assinatura ativa! 🎉",
+                "Cartão cadastrado com sucesso e acesso liberado — <b>hoje você não pagou nada</b>.<br><br>"
+                f"🎁 Seus 30 dias grátis já começaram. A primeira cobrança será em <b>{data}</b>, "
+                "automaticamente no cartão. Se cancelar antes dessa data, nada será cobrado.<br><br>"
+                "Já pode entrar no AGRIVIA!"
+            )
+        )
 
     return HTMLResponse(
         _pagina_html("Assinatura ativa! 🎉", "Pagamento aprovado e assinatura criada. Sua conta está liberada — já pode entrar no AGRIVIA.")
