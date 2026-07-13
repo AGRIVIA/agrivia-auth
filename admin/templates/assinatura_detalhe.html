@@ -40,6 +40,16 @@
     .ev-table td{padding:8px;border-bottom:1px solid rgba(34,58,42,0.5);font-size:13px;vertical-align:top;}
     .ev-payload{color:var(--muted);font-size:11px;cursor:pointer;}
     .ev-payload pre{white-space:pre-wrap;word-break:break-all;margin:6px 0 0;max-width:520px;}
+
+    /* 📱 Celular: dados empilhados (rótulo em cima, valor embaixo) */
+    @media (max-width:700px){
+        .dl{grid-template-columns:1fr;gap:2px;}
+        .dl dt{margin-top:10px;font-size:12px;}
+        .dl dd{text-align:left;font-size:14px;}
+        .acao-row input, .acao-row select{min-width:0;width:100%;}
+        .acao-row .campo{flex:1 1 100%;}
+        .ev-payload pre{max-width:100%;}
+    }
 </style>
 {% endblock %}
 

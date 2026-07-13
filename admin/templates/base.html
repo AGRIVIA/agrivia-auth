@@ -4,6 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}AGRIVIA · Admin{% endblock %}</title>
+
+    <!-- 📱 PWA: permite instalar o painel como app no celular (ícone AGRIVIA) -->
+    <link rel="manifest" href="/static/manifest.json">
+    <meta name="theme-color" content="#0c1826">
+    <link rel="icon" type="image/png" href="/static/icon-192.png">
+    <link rel="apple-touch-icon" href="/static/icon-180.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="AGRIVIA">
     <style>
         :root{
             --bg:#0c1826;
@@ -99,6 +108,22 @@
             border:1px solid rgba(192,57,43,0.3);padding:10px 12px;border-radius:9px;
             font-size:13px;margin-bottom:10px;
         }
+
+        /* ===== 📱 Celular (só telas estreitas — o desktop fica intocado) ===== */
+        @media (max-width: 700px){
+            .topbar{padding:10px 12px;flex-wrap:wrap;gap:8px;}
+            .brand .logo-img{width:30px;height:30px;}
+            .brand .name{font-size:16px;}
+            .brand .sub{display:none;}
+            .page{padding:14px 10px;}
+            .card{padding:16px;border-radius:14px;}
+            .card-narrow{margin:24px auto;}
+            h1.page-title{font-size:20px;}
+            /* Botões maiores = mais fáceis de acertar com o dedo */
+            .btn{padding:11px 14px;}
+            .btn-sm{padding:10px 12px;font-size:12px;}
+            input, select{padding:12px;font-size:16px;} /* 16px evita o zoom automático do iPhone */
+        }
     </style>
     {% block head_extra %}{% endblock %}
 </head>
@@ -115,5 +140,12 @@
     </div>
 
     {% block content %}{% endblock %}
+
+    <script>
+        // 📱 PWA: registra o service worker mínimo (torna o painel instalável).
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js').catch(function () {});
+        }
+    </script>
 </body>
 </html>

@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, date
 
 from fastapi import FastAPI, Depends, HTTPException, Request, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy import inspect, text
@@ -63,6 +63,17 @@ app.add_middleware(
 _STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 os.makedirs(_STATIC_DIR, exist_ok=True)
 app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
+
+
+# 📱 PWA: o service worker precisa ser servido da RAIZ do site para poder
+# "cobrir" as páginas /admin (regra de escopo dos navegadores). Ele é mínimo
+# e não guarda cache — só torna o painel instalável como app no celular.
+@app.get("/sw.js", include_in_schema=False)
+def service_worker():
+    return FileResponse(
+        os.path.join(_STATIC_DIR, "sw.js"),
+        media_type="application/javascript",
+    )
 
 # ===============================
 # DATABASE
