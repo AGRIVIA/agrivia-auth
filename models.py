@@ -25,6 +25,10 @@ class Usuario(Base):
     criado_em = Column(DateTime, default=datetime.utcnow)
     atualizado_em = Column(DateTime, nullable=True)
 
+    # 🔹 TELEMETRIA LEVE (mostrada no painel admin)
+    app_versao = Column(String, nullable=True)       # versão do app desktop no último login
+    ultimo_acesso = Column(DateTime, nullable=True)  # data/hora do último login
+
 
 # ===============================================================
 # FASE 2 — CÓPIAS DO BANCO NA NUVEM (snapshots)

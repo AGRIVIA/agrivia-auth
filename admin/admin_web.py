@@ -262,6 +262,8 @@ def listar_usuarios(
             "confirmado": confirmado,
             "n_dispositivos": len(devs),
             "dispositivos_detalhe": devs_detalhe,
+            "app_versao": u.app_versao or None,
+            "ultimo_acesso": _fmt_dt_br(u.ultimo_acesso),
             "vencimento": venc_data.strftime("%d/%m/%Y") if venc_data else None,
             "vencimento_status": venc_status
         })

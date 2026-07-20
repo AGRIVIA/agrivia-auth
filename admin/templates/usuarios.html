@@ -128,7 +128,9 @@
                         <th>Status</th>
                         <th>E-mail conf.</th>
                         <th>Admin</th>
+                        <th>Versão</th>
                         <th>Aparelhos</th>
+                        <th>Último acesso</th>
                         <th>Vencimento</th>
                         <th>Ações</th>
                     </tr>
@@ -167,6 +169,14 @@
                         </td>
 
                         <td>
+                            {% if u.app_versao %}
+                                <span class="badge b-muted">{{ u.app_versao }}</span>
+                            {% else %}
+                                <span class="hint">—</span>
+                            {% endif %}
+                        </td>
+
+                        <td>
                             {% if u.n_dispositivos >= 2 %}
                                 <span class="badge b-red" title="{{ u.dispositivos_detalhe }}">⚠️ {{ u.n_dispositivos }} aparelhos</span>
                             {% elif u.n_dispositivos == 1 %}
@@ -174,6 +184,10 @@
                             {% else %}
                                 <span class="hint">—</span>
                             {% endif %}
+                        </td>
+
+                        <td>
+                            <span class="hint" style="white-space:nowrap;">{{ u.ultimo_acesso }}</span>
                         </td>
 
                         <td>
@@ -230,7 +244,7 @@
                     </tr>
                 {% else %}
                     <tr>
-                        <td colspan="9" style="text-align:center;padding:30px;color:var(--muted);">
+                        <td colspan="11" style="text-align:center;padding:30px;color:var(--muted);">
                             Nenhum usuário encontrado.
                         </td>
                     </tr>

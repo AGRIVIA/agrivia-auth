@@ -103,6 +103,10 @@ def migrar_colunas_email():
         novas.append("ALTER TABLE usuarios ADD COLUMN token_confirmacao VARCHAR")
     if "token_expira" not in existentes:
         novas.append("ALTER TABLE usuarios ADD COLUMN token_expira TIMESTAMP")
+    if "app_versao" not in existentes:
+        novas.append("ALTER TABLE usuarios ADD COLUMN app_versao VARCHAR")
+    if "ultimo_acesso" not in existentes:
+        novas.append("ALTER TABLE usuarios ADD COLUMN ultimo_acesso TIMESTAMP")
 
     if not novas:
         return
@@ -828,6 +832,7 @@ async def webhook_asaas(request: Request, db: Session = Depends(get_db)):
 class LoginRequest(BaseModel):
     email: str
     senha: str
+    app_versao: str = ""   # versão do app desktop (apps antigos não mandam; fica vazio)
 
 # ===============================
 # LOGIN DESKTOP
@@ -838,6 +843,14 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
 
     if not user or not verify_password(data.senha, user.senha_hash):
         raise HTTPException(status_code=401, detail="Usuário ou senha inválidos")
+
+    # 🔹 TELEMETRIA: registra o último acesso e a versão do app já aqui (com a
+    # senha correta), ANTES das checagens de bloqueio — assim você vê no painel
+    # quem está tentando usar (útil até p/ quem está com pagamento vencido).
+    user.ultimo_acesso = datetime.utcnow()
+    if data.app_versao:
+        user.app_versao = data.app_versao.strip()[:20]
+    db.commit()
 
     if not user.email_verificado:
         raise HTTPException(
