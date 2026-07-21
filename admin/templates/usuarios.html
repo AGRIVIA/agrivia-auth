@@ -23,16 +23,28 @@
     .searchbar input{max-width:420px;}
 
     .table-wrap{overflow-x:auto;}
-    table{width:100%;border-collapse:collapse;min-width:780px;}
+    table{width:100%;border-collapse:collapse;min-width:860px;}
     thead th{
         text-align:left;font-size:12px;font-weight:700;color:var(--muted);
         text-transform:uppercase;letter-spacing:.4px;
         padding:14px 12px;border-bottom:1px solid var(--border);white-space:nowrap;
     }
-    tbody td{padding:12px;border-bottom:1px solid rgba(34,58,42,0.5);font-size:14px;}
+    tbody td{padding:12px;border-bottom:1px solid rgba(34,58,42,0.5);font-size:14px;vertical-align:middle;}
     tbody tr:last-child td{border-bottom:none;}
     tbody tr:hover td{background:rgba(122,163,63,0.05);}
-    .row-actions{display:flex;gap:6px;flex-wrap:wrap;align-items:center;}
+
+    /* Coluna Cliente (nome + e-mail + selos) */
+    .cli-nome{font-weight:600;}
+    .cli-id{color:var(--muted);font-weight:400;font-size:12px;}
+    .cli-email{font-size:12px;color:var(--muted);margin-top:2px;}
+    .cli-badges{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px;}
+    .badge-mini{padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700;display:inline-block;}
+
+    .nowrap{white-space:nowrap;}
+
+    /* Ações à direita, organizadas */
+    .acoes-col{text-align:right;}
+    .row-actions{display:flex;gap:6px;flex-wrap:wrap;align-items:center;justify-content:flex-end;}
     .row-actions form{margin:0;}
 
     @media (max-width:860px){
@@ -48,6 +60,7 @@
         .searchbar input{max-width:100%;}
         thead th{padding:10px 8px;}
         tbody td{padding:10px 8px;font-size:13px;}
+        .row-actions{justify-content:flex-start;}
     }
 </style>
 {% endblock %}
@@ -122,26 +135,31 @@
             <table>
                 <thead>
                     <tr>
-                        <th>ID</th>
-                        <th>Nome</th>
-                        <th>E-mail</th>
+                        <th>Cliente</th>
                         <th>Status</th>
-                        <th>E-mail conf.</th>
-                        <th>Admin</th>
                         <th>Versão</th>
-                        <th>Aparelhos</th>
                         <th>Último acesso</th>
+                        <th>Aparelhos</th>
                         <th>Vencimento</th>
-                        <th>Ações</th>
+                        <th style="text-align:right;">Ações</th>
                     </tr>
                 </thead>
                 <tbody>
                 {% for u in usuarios %}
                     <tr>
-                        <td>{{ u.id }}</td>
-                        <td>{{ u.nome }}</td>
-                        <td>{{ u.email }}</td>
+                        <!-- Cliente: nome + e-mail + selos (só quando relevante) -->
+                        <td>
+                            <div class="cli-nome">{{ u.nome }} <span class="cli-id">#{{ u.id }}</span></div>
+                            <div class="cli-email">{{ u.email }}</div>
+                            {% if u.is_admin or not u.confirmado %}
+                            <div class="cli-badges">
+                                {% if u.is_admin %}<span class="badge-mini b-green">Admin</span>{% endif %}
+                                {% if not u.confirmado %}<span class="badge-mini b-amber">⏳ e-mail não confirmado</span>{% endif %}
+                            </div>
+                            {% endif %}
+                        </td>
 
+                        <!-- Status -->
                         <td>
                             {% if u.status == 'ativo' %}
                                 <span class="badge b-green">Ativo</span>
@@ -152,23 +170,8 @@
                             {% endif %}
                         </td>
 
-                        <td>
-                            {% if u.confirmado %}
-                                <span class="badge b-green">✅ Sim</span>
-                            {% else %}
-                                <span class="badge b-amber">⏳ Não</span>
-                            {% endif %}
-                        </td>
-
-                        <td>
-                            {% if u.is_admin %}
-                                <span class="badge b-green">Admin</span>
-                            {% else %}
-                                <span class="hint">—</span>
-                            {% endif %}
-                        </td>
-
-                        <td>
+                        <!-- Versão -->
+                        <td class="nowrap">
                             {% if u.app_versao %}
                                 <span class="badge b-muted">{{ u.app_versao }}</span>
                             {% else %}
@@ -176,9 +179,15 @@
                             {% endif %}
                         </td>
 
+                        <!-- Último acesso -->
+                        <td class="nowrap">
+                            <span class="hint">{{ u.ultimo_acesso }}</span>
+                        </td>
+
+                        <!-- Aparelhos -->
                         <td>
                             {% if u.n_dispositivos >= 2 %}
-                                <span class="badge b-red" title="{{ u.dispositivos_detalhe }}">⚠️ {{ u.n_dispositivos }} aparelhos</span>
+                                <span class="badge b-red" title="{{ u.dispositivos_detalhe }}">⚠️ {{ u.n_dispositivos }}</span>
                             {% elif u.n_dispositivos == 1 %}
                                 <span class="badge b-muted" title="{{ u.dispositivos_detalhe }}">1</span>
                             {% else %}
@@ -186,11 +195,8 @@
                             {% endif %}
                         </td>
 
-                        <td>
-                            <span class="hint" style="white-space:nowrap;">{{ u.ultimo_acesso }}</span>
-                        </td>
-
-                        <td>
+                        <!-- Vencimento -->
+                        <td class="nowrap">
                             {% if u.vencimento_status == 'ok' %}
                                 <span class="badge b-green">{{ u.vencimento }}</span>
                             {% elif u.vencimento_status == 'alerta' %}
@@ -202,7 +208,8 @@
                             {% endif %}
                         </td>
 
-                        <td>
+                        <!-- Ações -->
+                        <td class="acoes-col">
                             <div class="row-actions">
                                 <a href="/admin/usuarios/{{ u.id }}/reset-senha" class="btn btn-light btn-sm" title="Resetar senha manualmente (você digita a senha)">🔑</a>
 
@@ -244,7 +251,7 @@
                     </tr>
                 {% else %}
                     <tr>
-                        <td colspan="11" style="text-align:center;padding:30px;color:var(--muted);">
+                        <td colspan="7" style="text-align:center;padding:30px;color:var(--muted);">
                             Nenhum usuário encontrado.
                         </td>
                     </tr>
