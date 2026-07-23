@@ -18,6 +18,7 @@
             --bg:#0c1826;
             --panel:#0e1d2c;
             --panel-2:#0b1320;
+            --sidebar:#081019;
             --border:#223a2a;
             --green:#476126;
             --green-2:#5a7a30;
@@ -28,6 +29,7 @@
             --danger-light:#e7897d;
             --warning:#e0a93f;
             --warning-bg:rgba(224,169,63,0.14);
+            --sidebar-w:248px;
         }
         *{box-sizing:border-box;}
         body{
@@ -39,23 +41,72 @@
         }
         a{text-decoration:none; color:inherit;}
 
-        /* ===== Topbar ===== */
+        /* ===== Menu lateral ===== */
+        .sidebar{
+            position:fixed; top:0; left:0; bottom:0; width:var(--sidebar-w);
+            background:var(--sidebar); border-right:1px solid var(--border);
+            display:flex; flex-direction:column; z-index:60;
+            transition:transform .22s ease;
+        }
+        .sidebar-brand{
+            display:flex; align-items:center; gap:10px;
+            padding:20px 18px; border-bottom:1px solid var(--border);
+        }
+        .sidebar-brand img{width:36px;height:36px;object-fit:contain;display:block;}
+        .sidebar-brand .name{font-size:18px;font-weight:800;letter-spacing:1px;}
+        .sidebar-brand .sub{font-size:11px;color:var(--muted);display:block;margin-top:1px;}
+
+        .nav{flex:1; padding:14px 10px; overflow-y:auto;}
+        .nav-secao{
+            font-size:10px; font-weight:700; color:var(--muted); letter-spacing:1px;
+            text-transform:uppercase; padding:12px 10px 6px;
+        }
+        .nav-item{
+            display:flex; align-items:center; gap:11px;
+            padding:11px 12px; border-radius:10px; margin-bottom:3px;
+            font-size:14px; color:var(--text); transition:.15s ease;
+            border-left:3px solid transparent;
+        }
+        .nav-item:hover{background:rgba(122,163,63,0.10);}
+        .nav-item.ativo{
+            background:rgba(122,163,63,0.16); color:var(--green-light);
+            font-weight:700; border-left-color:var(--green-light);
+        }
+        .nav-item .ico{font-size:16px; width:20px; text-align:center;}
+
+        .sidebar-rodape{padding:14px; border-top:1px solid var(--border);}
+        .sidebar-rodape .quem{font-size:12px;color:var(--muted);margin-bottom:10px;}
+        .sidebar-rodape .quem b{color:var(--text);display:block;font-size:13px;}
+
+        /* ===== Área principal ===== */
+        .main{margin-left:var(--sidebar-w); min-width:0;}
+        body.sem-menu .main{margin-left:0;}
+
         .topbar{
-            display:flex; align-items:center; justify-content:space-between;
-            padding:16px 28px;
+            display:flex; align-items:center; justify-content:space-between; gap:12px;
+            padding:14px 26px;
             background:rgba(7,16,12,0.55);
             border-bottom:1px solid var(--border);
-            position:sticky; top:0; z-index:5;
+            position:sticky; top:0; z-index:40;
             backdrop-filter: blur(6px);
         }
-        .brand{display:flex; align-items:center; gap:10px;}
-        .brand .logo-img{
-            width:38px;height:38px;object-fit:contain;display:block;
+        .topbar-esq{display:flex;align-items:center;gap:12px;min-width:0;}
+        .btn-menu{
+            display:none; background:transparent; border:1px solid var(--border);
+            color:var(--text); border-radius:9px; padding:8px 11px; font-size:16px; cursor:pointer;
         }
-        .brand .name{font-size:18px;font-weight:700;letter-spacing:1px;}
+        .brand{display:flex; align-items:center; gap:10px;}
+        .brand .logo-img{width:32px;height:32px;object-fit:contain;display:block;}
+        .brand .name{font-size:17px;font-weight:700;letter-spacing:1px;}
         .brand .sub{font-size:12px;color:var(--muted);margin-left:4px;}
 
-        .page{padding:28px; max-width:1100px; margin:0 auto;}
+        .page{padding:26px; max-width:1180px; margin:0 auto;}
+
+        /* Overlay do menu no celular */
+        .overlay{
+            display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:55;
+        }
+        .overlay.aberto{display:block;}
 
         /* ===== Botões ===== */
         .btn{
@@ -109,17 +160,22 @@
             font-size:13px;margin-bottom:10px;
         }
 
-        /* ===== 📱 Celular (só telas estreitas — o desktop fica intocado) ===== */
+        /* ===== 📱 Celular / telas estreitas ===== */
+        @media (max-width: 900px){
+            .sidebar{transform:translateX(-100%); box-shadow:0 0 40px rgba(0,0,0,.6);}
+            .sidebar.aberta{transform:translateX(0);}
+            .main{margin-left:0;}
+            .btn-menu{display:inline-flex;}
+        }
         @media (max-width: 700px){
             .topbar{padding:10px 12px;flex-wrap:wrap;gap:8px;}
-            .brand .logo-img{width:30px;height:30px;}
-            .brand .name{font-size:16px;}
+            .brand .logo-img{width:28px;height:28px;}
+            .brand .name{font-size:15px;}
             .brand .sub{display:none;}
             .page{padding:14px 10px;}
             .card{padding:16px;border-radius:14px;}
             .card-narrow{margin:24px auto;}
             h1.page-title{font-size:20px;}
-            /* Botões maiores = mais fáceis de acertar com o dedo */
             .btn{padding:11px 14px;}
             .btn-sm{padding:10px 12px;font-size:12px;}
             input, select{padding:12px;font-size:16px;} /* 16px evita o zoom automático do iPhone */
@@ -127,21 +183,81 @@
     </style>
     {% block head_extra %}{% endblock %}
 </head>
-<body>
-    <div class="topbar">
-        <a href="/admin/usuarios" class="brand">
-            <img src="/static/logo_symbol.png" alt="AGRIVIA" class="logo-img">
+<body class="{% block body_class %}{% endblock %}">
+
+    {% block sidebar %}
+    <aside class="sidebar" id="sidebar">
+        <a href="/admin/dashboard" class="sidebar-brand">
+            <img src="/static/logo_symbol.png" alt="AGRIVIA">
             <div>
                 <span class="name">AGRIVIA</span>
-                <span class="sub">Admin</span>
+                <span class="sub">Painel administrativo</span>
             </div>
         </a>
-        {% block topbar_right %}{% endblock %}
+
+        {% set p = request.url.path if request else '' %}
+        <nav class="nav">
+            <div class="nav-secao">Gestão</div>
+            <a href="/admin/dashboard" class="nav-item {% if p.startswith('/admin/dashboard') %}ativo{% endif %}">
+                <span class="ico">📊</span> Dashboard
+            </a>
+            <a href="/admin/usuarios" class="nav-item {% if p.startswith('/admin/usuarios') %}ativo{% endif %}">
+                <span class="ico">👥</span> Usuários
+            </a>
+            <a href="/admin/assinaturas" class="nav-item {% if p.startswith('/admin/assinaturas') %}ativo{% endif %}">
+                <span class="ico">💳</span> Assinaturas
+            </a>
+            <a href="/admin/planos" class="nav-item {% if p.startswith('/admin/planos') %}ativo{% endif %}">
+                <span class="ico">🏷️</span> Planos
+            </a>
+        </nav>
+
+        <div class="sidebar-rodape">
+            <div class="quem">
+                <b>Administrador</b>
+                AGRIVIA · Painel
+            </div>
+            <a href="/admin/logout" class="btn btn-light" style="width:100%;justify-content:center;">Sair</a>
+        </div>
+    </aside>
+    <div class="overlay" id="overlay"></div>
+    {% endblock %}
+
+    <div class="main">
+        <div class="topbar">
+            <div class="topbar-esq">
+                {% block topbar_menu %}
+                <button class="btn-menu" id="btnMenu" title="Menu">☰</button>
+                {% endblock %}
+                <a href="/admin/dashboard" class="brand">
+                    <img src="/static/logo_symbol.png" alt="AGRIVIA" class="logo-img">
+                    <div>
+                        <span class="name">AGRIVIA</span>
+                        <span class="sub">Admin</span>
+                    </div>
+                </a>
+            </div>
+            {% block topbar_right %}{% endblock %}
+        </div>
+
+        {% block content %}{% endblock %}
     </div>
 
-    {% block content %}{% endblock %}
-
     <script>
+        // 📱 Abre/fecha o menu lateral no celular.
+        (function () {
+            var b = document.getElementById('btnMenu');
+            var s = document.getElementById('sidebar');
+            var o = document.getElementById('overlay');
+            if (!b || !s || !o) return;
+            function alterna(abrir) {
+                s.classList.toggle('aberta', abrir);
+                o.classList.toggle('aberto', abrir);
+            }
+            b.addEventListener('click', function () { alterna(!s.classList.contains('aberta')); });
+            o.addEventListener('click', function () { alterna(false); });
+        })();
+
         // 📱 PWA: registra o service worker mínimo (torna o painel instalável).
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('/sw.js').catch(function () {});

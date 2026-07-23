@@ -1,0 +1,245 @@
+{% extends "base.html" %}
+
+{% block title %}AGRIVIA · Dashboard{% endblock %}
+
+{% block head_extra %}
+<style>
+    .saudacao{font-size:24px;font-weight:800;margin:0;}
+    .saudacao-sub{color:var(--muted);font-size:14px;margin:4px 0 22px;}
+
+    /* Cards de indicador */
+    .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px;}
+    .kpi{
+        background:linear-gradient(180deg,var(--panel),var(--panel-2));
+        border:1px solid var(--border);border-radius:16px;padding:18px;
+        display:flex;align-items:center;gap:14px;transition:.15s ease;
+    }
+    .kpi:hover{border-color:var(--green-2);transform:translateY(-2px);}
+    .kpi-ico{
+        width:46px;height:46px;border-radius:50%;flex-shrink:0;
+        display:flex;align-items:center;justify-content:center;font-size:20px;
+        background:rgba(122,163,63,0.14);
+    }
+    .kpi-ico.azul{background:rgba(56,189,248,0.14);}
+    .kpi-ico.amarelo{background:rgba(224,169,63,0.16);}
+    .kpi-ico.vermelho{background:rgba(192,57,43,0.18);}
+    .kpi-rotulo{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;}
+    .kpi-num{font-size:26px;font-weight:800;line-height:1.15;}
+    .kpi-obs{font-size:12px;color:var(--muted);margin-top:2px;}
+
+    /* Blocos */
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px;}
+    .bloco{
+        background:linear-gradient(180deg,var(--panel),var(--panel-2));
+        border:1px solid var(--border);border-radius:16px;padding:18px 20px;
+    }
+    .bloco-topo{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;}
+    .bloco-titulo{font-size:14px;font-weight:700;margin:0;}
+    .bloco-link{font-size:12px;color:var(--green-light);}
+
+    .lista{list-style:none;padding:0;margin:0;}
+    .lista li{
+        display:flex;align-items:center;justify-content:space-between;gap:10px;
+        padding:11px 0;border-bottom:1px solid rgba(34,58,42,0.5);font-size:14px;
+    }
+    .lista li:last-child{border-bottom:none;}
+    .li-nome{font-weight:600;}
+    .li-email{font-size:12px;color:var(--muted);}
+    .li-dir{text-align:right;white-space:nowrap;}
+    .li-valor{font-weight:700;}
+    .li-obs{font-size:12px;color:var(--muted);}
+
+    .vazio{color:var(--muted);font-size:13px;padding:14px 0;text-align:center;}
+
+    .chips{display:flex;flex-wrap:wrap;gap:8px;}
+    .chip{
+        background:#16252f;border:1px solid var(--border);border-radius:999px;
+        padding:7px 13px;font-size:13px;
+    }
+    .chip b{color:var(--green-light);}
+
+    .ev{display:flex;align-items:center;justify-content:space-between;gap:10px;
+        padding:9px 0;border-bottom:1px solid rgba(34,58,42,0.5);font-size:13px;}
+    .ev:last-child{border-bottom:none;}
+    .ev-tipo{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;}
+
+    @media (max-width:1000px){ .kpis{grid-template-columns:repeat(2,1fr);} }
+    @media (max-width:820px){ .grid2{grid-template-columns:1fr;} }
+    @media (max-width:520px){ .kpis{grid-template-columns:1fr;} }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page">
+
+    <h1 class="saudacao">Olá, {{ primeiro_nome }}! 👋</h1>
+    <p class="saudacao-sub">Resumo da sua operação AGRIVIA agora.</p>
+
+    <!-- ===== Indicadores ===== -->
+    <div class="kpis">
+        <a href="/admin/usuarios" class="kpi">
+            <div class="kpi-ico">👥</div>
+            <div>
+                <div class="kpi-rotulo">Clientes ativos</div>
+                <div class="kpi-num">{{ n_ativos }}</div>
+                <div class="kpi-obs">{{ n_clientes }} no total{% if n_bloqueados %} · {{ n_bloqueados }} bloqueado(s){% endif %}</div>
+            </div>
+        </a>
+
+        <a href="/admin/assinaturas?filtro=ativas" class="kpi">
+            <div class="kpi-ico">💳</div>
+            <div>
+                <div class="kpi-rotulo">Assinaturas ativas</div>
+                <div class="kpi-num">{{ n_assin_ativas }}</div>
+                <div class="kpi-obs">
+                    {% if n_trial %}🎁 {{ n_trial }} em teste grátis{% else %}pagando normalmente{% endif %}
+                </div>
+            </div>
+        </a>
+
+        <div class="kpi">
+            <div class="kpi-ico azul">💰</div>
+            <div>
+                <div class="kpi-rotulo">Receita mensal</div>
+                <div class="kpi-num">{{ mrr }}</div>
+                <div class="kpi-obs">soma das ativas, por mês</div>
+            </div>
+        </div>
+
+        <a href="/admin/assinaturas?filtro=vencidas" class="kpi">
+            <div class="kpi-ico {% if n_vencidas %}vermelho{% else %}amarelo{% endif %}">⚠️</div>
+            <div>
+                <div class="kpi-rotulo">Precisam de atenção</div>
+                <div class="kpi-num">{{ n_vencidas + n_pendentes }}</div>
+                <div class="kpi-obs">{{ n_vencidas }} vencida(s) · {{ n_pendentes }} pendente(s)</div>
+            </div>
+        </a>
+    </div>
+
+    <!-- ===== Vencendo x Atrasados ===== -->
+    <div class="grid2">
+        <div class="bloco">
+            <div class="bloco-topo">
+                <h2 class="bloco-titulo">📅 Vencendo nos próximos 7 dias</h2>
+                <a href="/admin/assinaturas" class="bloco-link">Ver todas →</a>
+            </div>
+            {% if vencendo %}
+            <ul class="lista">
+                {% for v in vencendo %}
+                <li>
+                    <div>
+                        <div class="li-nome">{{ v.nome }} {% if v.trial %}<span class="badge b-amber">🎁 1ª cobrança</span>{% endif %}</div>
+                        <div class="li-email">{{ v.email }} · {{ v.plano }}</div>
+                    </div>
+                    <div class="li-dir">
+                        <div class="li-valor">{{ v.valor }}</div>
+                        <div class="li-obs">
+                            {{ v.vencimento }}
+                            {% if v.dias == 0 %}(hoje){% elif v.dias == 1 %}(amanhã){% else %}(em {{ v.dias }} dias){% endif %}
+                        </div>
+                    </div>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p class="vazio">Nenhuma cobrança nos próximos 7 dias.</p>
+            {% endif %}
+        </div>
+
+        <div class="bloco">
+            <div class="bloco-topo">
+                <h2 class="bloco-titulo">🔴 Pagamentos em atraso</h2>
+                <a href="/admin/assinaturas?filtro=vencidas" class="bloco-link">Ver todos →</a>
+            </div>
+            {% if atrasados %}
+            <ul class="lista">
+                {% for a in atrasados %}
+                <li>
+                    <div>
+                        <div class="li-nome">{{ a.nome }}</div>
+                        <div class="li-email">{{ a.email }}</div>
+                    </div>
+                    <div class="li-dir">
+                        <div class="li-valor">{{ a.valor }}</div>
+                        <div class="li-obs"><span class="badge {{ a.status_css }}">{{ a.status_label }}</span></div>
+                    </div>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p class="vazio">Ninguém em atraso. 🎉</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- ===== Sumidos x Versões ===== -->
+    <div class="grid2">
+        <div class="bloco">
+            <div class="bloco-topo">
+                <h2 class="bloco-titulo">🔥 Clientes sumidos</h2>
+                <span class="li-obs">sem acessar há +{{ dias_sumido }} dias</span>
+            </div>
+            {% if sumidos %}
+            <ul class="lista">
+                {% for s in sumidos %}
+                <li>
+                    <div>
+                        <div class="li-nome">{{ s.nome }}</div>
+                        <div class="li-email">{{ s.email }}</div>
+                    </div>
+                    <div class="li-dir">
+                        <div class="li-valor" style="color:var(--warning);">{{ s.dias }} dias</div>
+                        <div class="li-obs">último: {{ s.ultimo_acesso }}</div>
+                    </div>
+                </li>
+                {% endfor %}
+            </ul>
+            <p class="li-obs" style="margin:12px 0 0;">
+                💡 Cliente que parou de usar costuma ser o próximo a cancelar — vale uma ligação.
+            </p>
+            {% else %}
+            <p class="vazio">Todo mundo acessando em dia. 👏</p>
+            {% endif %}
+        </div>
+
+        <div class="bloco">
+            <div class="bloco-topo">
+                <h2 class="bloco-titulo">🔢 Versões em uso</h2>
+                <a href="/admin/usuarios" class="bloco-link">Ver clientes →</a>
+            </div>
+            <div class="chips">
+                {% for v, qtd in versoes %}
+                <span class="chip">{{ v }} · <b>{{ qtd }}</b></span>
+                {% else %}
+                <span class="vazio">Nenhum cliente ainda.</span>
+                {% endfor %}
+            </div>
+
+            <div class="bloco-topo" style="margin-top:22px;">
+                <h2 class="bloco-titulo">📡 Últimos avisos da Asaas</h2>
+            </div>
+            {% if eventos %}
+            {% for e in eventos %}
+            <div class="ev">
+                <span class="ev-tipo">{{ e.tipo }}</span>
+                <span class="li-obs">{{ e.quando }}</span>
+            </div>
+            {% endfor %}
+            {% else %}
+            <p class="vazio">Nenhum aviso recebido ainda.</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- ===== Atalhos ===== -->
+    <div class="bloco">
+        <div class="bloco-topo"><h2 class="bloco-titulo">⚡ Acesso rápido</h2></div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <a href="/admin/usuarios/novo" class="btn btn-primary">➕ Novo usuário</a>
+            <a href="/admin/assinaturas" class="btn btn-light">💳 Assinaturas</a>
+            <a href="/admin/planos" class="btn btn-light">🏷️ Planos e reajuste</a>
+            <a href="/admin/usuarios?filtro=nao_confirmados" class="btn btn-light">⏳ E-mails não confirmados</a>
+        </div>
+    </div>
+</div>
+{% endblock %}

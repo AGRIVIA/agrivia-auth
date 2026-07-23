@@ -160,7 +160,151 @@ def login_action(
 
     request.session["admin_id"] = user.id
 
-    return RedirectResponse("/admin/usuarios", status_code=302)
+    return RedirectResponse("/admin/dashboard", status_code=302)
+
+
+# ===============================================================
+# DASHBOARD — visão geral do negócio
+# ---------------------------------------------------------------
+# SÓ usa dados que o sistema já tem (nada inventado, nada de
+# histórico): clientes, assinaturas, receita mensal recorrente,
+# vencimentos próximos, atrasos, quem sumiu e versões em uso.
+# ===============================================================
+# Quantos meses cada ciclo cobre (p/ transformar o valor em "por mês").
+_MESES_CICLO = {"MONTHLY": 1, "SEMIANNUALLY": 6, "YEARLY": 12}
+
+# A partir de quantos dias sem acessar consideramos o cliente "sumido".
+_DIAS_SUMIDO = 15
+
+
+@router.get("/dashboard", response_class=HTMLResponse)
+def dashboard(request: Request, db: Session = Depends(get_db)):
+    admin_id = request.session.get("admin_id")
+    if not admin_id:
+        return RedirectResponse("/admin/login", status_code=302)
+
+    admin = db.query(Usuario).filter(Usuario.id == admin_id).first()
+    primeiro_nome = (admin.nome or "Administrador").split()[0] if admin else "Administrador"
+
+    usuarios = db.query(Usuario).filter(Usuario.is_admin == 0).order_by(Usuario.id).all()
+
+    # Assinatura MAIS RECENTE de cada cliente (1 query só).
+    todas = (
+        db.query(Assinatura)
+        .order_by(Assinatura.user_id.asc(), Assinatura.id.desc())
+        .all()
+    )
+    ass_por_user = {}
+    for a in todas:
+        ass_por_user.setdefault(a.user_id, a)
+
+    hoje = date.today()
+    agora = datetime.utcnow()
+
+    n_clientes = len(usuarios)
+    n_ativos = n_bloqueados = 0
+    n_assin_ativas = n_trial = n_pendentes = n_vencidas = n_sem_assin = 0
+    mrr = 0.0
+    vencendo, atrasados, versoes = [], [], {}
+
+    for u in usuarios:
+        if u.status == "ativo":
+            n_ativos += 1
+        elif u.status == "bloqueado":
+            n_bloqueados += 1
+
+        # Versões do app em uso
+        v = u.app_versao or "sem informação"
+        versoes[v] = versoes.get(v, 0) + 1
+
+        a = ass_por_user.get(u.id)
+        st = a.status if a else None
+
+        if not (a and a.asaas_subscription_id):
+            n_sem_assin += 1
+
+        if st == "active":
+            n_assin_ativas += 1
+            # Receita mensal recorrente: normaliza o valor do ciclo p/ 1 mês.
+            mrr += float(a.valor or 0) / _MESES_CICLO.get(a.ciclo, 1)
+        elif st == "trial":
+            n_trial += 1
+        elif st == "pending_payment":
+            n_pendentes += 1
+        elif st in ("overdue", "suspended"):
+            n_vencidas += 1
+            atrasados.append({
+                "nome": u.nome, "email": u.email, "user_id": u.id,
+                "valor": _fmt_money(a.valor),
+                "vencimento": _fmt_data(a.proximo_vencimento),
+                "status_label": _status_view(a)[0],
+                "status_css": _status_view(a)[1],
+            })
+
+        # Vencendo nos próximos 7 dias (só quem está ativo ou em teste).
+        if a and a.proximo_vencimento and st in ("active", "trial"):
+            dias = (a.proximo_vencimento.date() - hoje).days
+            if 0 <= dias <= 7:
+                vencendo.append({
+                    "nome": u.nome, "email": u.email, "user_id": u.id,
+                    "plano": (a.plano.capitalize() if a.plano else "—"),
+                    "valor": _fmt_money(a.valor),
+                    "vencimento": _fmt_data(a.proximo_vencimento),
+                    "dias": dias,
+                    "trial": st == "trial",
+                })
+
+    vencendo.sort(key=lambda x: x["dias"])
+
+    # 🔥 Clientes "sumidos": já acessaram, mas não voltam há muitos dias.
+    limite_sumido = agora - timedelta(days=_DIAS_SUMIDO)
+    sumidos = []
+    for u in usuarios:
+        if u.ultimo_acesso and u.ultimo_acesso < limite_sumido:
+            sumidos.append({
+                "nome": u.nome, "email": u.email, "user_id": u.id,
+                "ultimo_acesso": _fmt_dt_br(u.ultimo_acesso),
+                "dias": (agora - u.ultimo_acesso).days,
+            })
+    sumidos.sort(key=lambda x: x["dias"], reverse=True)
+
+    # Versões ordenadas (mais usadas primeiro)
+    versoes_lista = sorted(versoes.items(), key=lambda kv: kv[1], reverse=True)
+
+    # Últimos avisos recebidos da Asaas
+    eventos = (
+        db.query(AsaasEvento)
+        .order_by(AsaasEvento.recebido_em.desc())
+        .limit(6)
+        .all()
+    )
+    eventos_view = [
+        {"tipo": e.tipo or "—", "quando": _fmt_dt_br(e.recebido_em)}
+        for e in eventos
+    ]
+
+    return templates.TemplateResponse(
+        request,
+        "dashboard.html",
+        {
+            "primeiro_nome": primeiro_nome,
+            "n_clientes": n_clientes,
+            "n_ativos": n_ativos,
+            "n_bloqueados": n_bloqueados,
+            "n_assin_ativas": n_assin_ativas,
+            "n_trial": n_trial,
+            "n_pendentes": n_pendentes,
+            "n_vencidas": n_vencidas,
+            "n_sem_assin": n_sem_assin,
+            "mrr": _fmt_money(mrr),
+            "vencendo": vencendo,
+            "atrasados": atrasados,
+            "sumidos": sumidos,
+            "dias_sumido": _DIAS_SUMIDO,
+            "versoes": versoes_lista,
+            "eventos": eventos_view,
+        },
+    )
 
 
 # -------------------------------------------------
